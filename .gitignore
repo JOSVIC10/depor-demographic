@@ -1,7 +1,10 @@
 .venv/
+python_embed/
 __pycache__/
 *.pyc
 .pytest_cache/
+demographic.db
+depor_data.db
 besoccer_dump.html
 besoccer_events_dump.html
 all_events_dump.txt
