@@ -977,3 +977,125 @@ body {
   border-left-color: var(--gold-accent);
 }
 
+/* ==========================================
+   MOBILE & TOUCH RESPONSIVE STYLES (@media <= 768px)
+   ========================================== */
+
+@media screen and (max-width: 768px) {
+  .container {
+    padding: 0.5rem !important;
+  }
+
+  header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.75rem !important;
+    padding: 0.75rem 1rem !important;
+  }
+
+  .header-controls {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
+
+  .tab-nav {
+    display: flex !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    white-space: nowrap !important;
+    padding-bottom: 4px !important;
+    gap: 0.4rem !important;
+  }
+
+  .tab-btn {
+    padding: 0.5rem 0.85rem !important;
+    font-size: 0.82rem !important;
+    flex-shrink: 0 !important;
+  }
+
+  .table-responsive {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    width: 100% !important;
+    border-radius: 8px !important;
+    margin-bottom: 1rem !important;
+  }
+
+  table {
+    min-width: 620px !important;
+  }
+
+  .preview-slide-card {
+    padding: 0.85rem !important;
+    margin-bottom: 1.25rem !important;
+  }
+
+  .slide-header-bar {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0.5rem !important;
+  }
+
+  .match-preview-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 1rem !important;
+  }
+
+  #prevSubListC, #prevSubLogC {
+    width: 100% !important;
+  }
+
+  .pitch-svg-canvas {
+    max-width: 100% !important;
+    border-radius: 8px !important;
+  }
+
+  .player-photo-circle {
+    width: 32px !important;
+    height: 32px !important;
+  }
+
+  .player-name-pill {
+    font-size: 0.58rem !important;
+    padding: 1px 4px !important;
+    max-width: 85px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .squad-player-box .player-photo-circle {
+    width: 22px !important;
+    height: 22px !important;
+  }
+
+  .squad-player-box .player-name-pill {
+    font-size: 0.54rem !important;
+    padding: 1px 3px !important;
+  }
+
+  .modal {
+    width: 94% !important;
+    max-width: 100% !important;
+    padding: 1rem !important;
+    border-radius: 12px !important;
+    max-height: 88vh !important;
+  }
+
+  #playerCardModal .modal {
+    padding: 1rem !important;
+  }
+
+  #playerCardModal div[style*="display: flex; gap: 1.5rem"] {
+    flex-direction: column !important;
+    align-items: center !important;
+    text-align: center !important;
+    gap: 0.75rem !important;
+  }
+
+  #playerCardModal div[style*="grid-template-columns: repeat(4, 1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 0.5rem !important;
+  }
+}
+
