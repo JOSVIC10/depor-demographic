@@ -1,0 +1,1954 @@
+const API_BASE = "http://localhost:8000/api";
+
+let currentTeamId = "depor";
+let teamsList = [];
+let currentPlayers = [];
+let currentMatches = [];
+let currentMatchId = null;
+let currentMatchDetails = null;
+let tempMatchRoster = [];
+
+// Initial Load
+document.addEventListener("DOMContentLoaded", async () => {
+  setupCSVDropzone();
+  await loadTeams();
+});
+
+// Tab Switching
+function showTab(tabName) {
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+  
+  const targetBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => {
+    const attr = b.getAttribute('onclick');
+    return attr && attr.includes(tabName);
+  });
+  if (targetBtn) targetBtn.classList.add('active');
+  
+  const targetContent = document.getElementById(`tab-${tabName}`);
+  if (targetContent) targetContent.classList.add('active');
+
+  if (tabName === 'preview') {
+    renderLivePreviews();
+  }
+}
+
+// Teams Management
+async function loadTeams() {
+  try {
+    const res = await fetch(`${API_BASE}/teams`);
+    teamsList = await res.json();
+    
+    const select = document.getElementById("headerTeamSelect");
+    select.innerHTML = teamsList.map(t => `<option value="${t.id}">${t.name}</option>`).join("");
+    
+    if (teamsList.length > 0) {
+      currentTeamId = teamsList[0].id;
+      select.value = currentTeamId;
+      await loadTeamData();
+    }
+  } catch (err) {
+    console.error("Error loading teams:", err);
+  }
+}
+
+async function switchTeam(teamId) {
+  currentTeamId = teamId;
+  await loadTeamData();
+}
+
+async function loadTeamData() {
+  await Promise.all([loadPlayers(), loadMatches()]);
+  renderExportMatchesChecklist();
+}
+
+// Players Management
+async function loadPlayers() {
+  try {
+    const res = await fetch(`${API_BASE}/teams/${currentTeamId}/players`);
+    currentPlayers = await res.json();
+    renderPlayersTable();
+    const badge = document.getElementById("playerCountBadge");
+    if (badge) badge.innerText = `${currentPlayers.length} Jugadores`;
+  } catch (err) {
+    console.error("Error loading players:", err);
+  }
+}
+
+function renderPlayersTable() {
+  const tbody = document.getElementById("playersTableBody");
+  if (!tbody) return;
+  tbody.innerHTML = currentPlayers.map(p => {
+    const avatarHtml = p.photo_url 
+      ? `<img src="${p.photo_url}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--navy-primary); box-shadow: 0 2px 4px rgba(0,0,0,0.12); cursor: pointer;" onclick="openPlayerCardModal('${p.id}')" title="Haz clic para ver la Ficha / Pasaporte del Jugador">`
+      : `<div style="width: 40px; height: 40px; border-radius: 50%; background: #002060; color: white; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; border: 2px solid #002060; cursor: pointer;" onclick="openPlayerCardModal('${p.id}')" title="Haz clic para ver la Ficha / Pasaporte del Jugador">👤</div>`;
+
+    const metricsHtml = `
+      <div style="font-size: 0.8rem; color: #1e293b; line-height: 1.3;">
+        <span style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-weight: 700; color: #002060; font-size: 0.75rem;">26/27</span>
+        <span style="margin-left: 4px;"><strong>${p.minutes_played || 0}'</strong> min | <strong>${p.starts || 0}</strong> part</span>
+      </div>
+    `;
+
+    return `
+      <tr>
+        <td style="vertical-align: middle; width: 50px;">${avatarHtml}</td>
+        <td style="font-weight: 700; color: var(--navy-primary); vertical-align: middle; cursor: pointer;" onclick="openPlayerCardModal('${p.id}')">${p.name}</td>
+        <td style="vertical-align: middle;">${p.birthdate}</td>
+        <td style="vertical-align: middle;"><strong>${p.age}</strong></td>
+        <td style="vertical-align: middle;">${p.detailed_position}</td>
+        <td style="vertical-align: middle;"><span class="badge badge-position">${p.derived_category}</span></td>
+        <td style="vertical-align: middle;">${metricsHtml}</td>
+        <td style="text-align: right; vertical-align: middle; white-space: nowrap;">
+          <button class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.78rem; margin-right: 4px;" onclick="openPlayerCardModal('${p.id}')">📋 Pasaporte</button>
+          <button class="btn btn-danger" style="padding: 0.3rem 0.6rem; font-size: 0.78rem;" onclick="deletePlayer('${p.id}')">🗑️</button>
+        </td>
+      </tr>
+    `;
+  }).join("");
+}
+
+function openPlayerCardModal(playerId) {
+  const p = currentPlayers.find(x => x.id === playerId);
+  if (!p) return;
+  document.getElementById("cardPlayerModalId").value = p.id;
+  document.getElementById("cardPlayerName").innerText = p.name;
+  document.getElementById("cardPlayerPos").innerText = p.detailed_position;
+  document.getElementById("cardPlayerAge").innerText = `${p.age} años`;
+  document.getElementById("cardPlayerBirth").innerText = p.birthdate;
+  document.getElementById("cardStatMins").innerText = `${p.minutes_played || 0}'`;
+  document.getElementById("cardStatApps").innerText = p.starts || 0;
+  document.getElementById("cardStatGoals").innerText = p.goals || 0;
+  document.getElementById("cardStatCards").innerText = `${p.yellow_cards || 0} / ${p.red_cards || 0}`;
+
+  const img = document.getElementById("cardPlayerPhoto");
+  const fallback = document.getElementById("cardPlayerFallback");
+  if (p.photo_url) {
+    img.src = p.photo_url;
+    img.style.display = "block";
+    fallback.style.display = "none";
+  } else {
+    img.src = "";
+    img.style.display = "none";
+    fallback.style.display = "block";
+  }
+
+  const seasonsBox = document.getElementById("cardPlayerSeasonsList");
+  seasonsBox.innerText = p.seasons_data ? p.seasons_data : "No hay desglose histórico registrado para las últimas 3 temporadas.";
+  document.getElementById("playerCardModal").classList.add("active");
+}
+
+function closePlayerCardModal() {
+  document.getElementById("playerCardModal").classList.remove("active");
+}
+
+let selectedPhotoFile = null;
+
+function openEditPlayerModal(playerId) {
+  const p = currentPlayers.find(x => x.id === playerId);
+  if (!p) return;
+
+  selectedPhotoFile = null;
+  document.getElementById("editPlayerId").value = p.id;
+  document.getElementById("editPlayerName").value = p.name || "";
+  document.getElementById("editPlayerBirthdate").value = p.birthdate || "";
+  document.getElementById("editPlayerPosition").value = p.detailed_position || "";
+  document.getElementById("editPlayerMin").value = p.minutes_played || 0;
+  document.getElementById("editPlayerStarts").value = p.starts || 0;
+  document.getElementById("editPlayerSubs").value = p.subs_in || 0;
+  document.getElementById("editPlayerYellows").value = p.yellow_cards || 0;
+  document.getElementById("editPlayerReds").value = p.red_cards || 0;
+  document.getElementById("editPlayerGoals").value = p.goals || 0;
+  document.getElementById("editPlayerSeasonsData").value = p.seasons_data || "";
+
+  const img = document.getElementById("editPlayerPhotoImg");
+  const fallback = document.getElementById("editPlayerPhotoFallback");
+  if (p.photo_url) {
+    img.src = p.photo_url;
+    img.style.display = "block";
+    fallback.style.display = "none";
+  } else {
+    img.src = "";
+    img.style.display = "none";
+    fallback.style.display = "block";
+  }
+
+  document.getElementById("editPlayerPhotoInput").value = "";
+  document.getElementById("editPlayerModal").classList.add("active");
+}
+
+function closeEditPlayerModal() {
+  document.getElementById("editPlayerModal").classList.remove("active");
+}
+
+function handlePlayerPhotoSelect(event) {
+  if (event.target.files && event.target.files[0]) {
+    selectedPhotoFile = event.target.files[0];
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = document.getElementById("editPlayerPhotoImg");
+      const fallback = document.getElementById("editPlayerPhotoFallback");
+      img.src = e.target.result;
+      img.style.display = "block";
+      fallback.style.display = "none";
+    };
+    reader.readAsDataURL(selectedPhotoFile);
+  }
+}
+
+async function submitSaveEditPlayer() {
+  const playerId = document.getElementById("editPlayerId").value;
+  if (!playerId) return;
+
+  // 1. Upload photo if selected
+  if (selectedPhotoFile) {
+    const formData = new FormData();
+    formData.append("file", selectedPhotoFile);
+    try {
+      await fetch(`${API_BASE}/players/${playerId}/photo`, {
+        method: "POST",
+        body: formData
+      });
+    } catch (err) {
+      console.error("Error uploading photo:", err);
+    }
+  }
+
+  // 2. Save info & stats
+  const statsPayload = {
+    minutes_played: parseInt(document.getElementById("editPlayerMin").value || 0),
+    starts: parseInt(document.getElementById("editPlayerStarts").value || 0),
+    subs_in: parseInt(document.getElementById("editPlayerSubs").value || 0),
+    yellow_cards: parseInt(document.getElementById("editPlayerYellows").value || 0),
+    red_cards: parseInt(document.getElementById("editPlayerReds").value || 0),
+    goals: parseInt(document.getElementById("editPlayerGoals").value || 0),
+    seasons_data: document.getElementById("editPlayerSeasonsData").value
+  };
+
+  const name = document.getElementById("editPlayerName").value;
+  const birthdate = document.getElementById("editPlayerBirthdate").value;
+  const position = document.getElementById("editPlayerPosition").value;
+
+  try {
+    await fetch(`${API_BASE}/players/${playerId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        birthdate,
+        detailed_position: position,
+        team_id: currentTeamId
+      })
+    });
+
+    await fetch(`${API_BASE}/players/${playerId}/stats`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(statsPayload)
+    });
+
+    closeEditPlayerModal();
+    await loadPlayers();
+  } catch (err) {
+    alert("Error al guardar información del jugador");
+  }
+}
+
+async function deletePlayer(playerId) {
+  if (!confirm("¿Eliminar jugador de la plantilla?")) return;
+  await fetch(`${API_BASE}/players/${playerId}`, { method: "DELETE" });
+  await loadPlayers();
+}
+
+// Add Player Modal
+function openAddPlayerModal() {
+  document.getElementById("addPlayerModal").classList.add("active");
+}
+
+function closeAddPlayerModal() {
+  document.getElementById("addPlayerModal").classList.remove("active");
+}
+
+async function submitAddPlayer() {
+  const name = document.getElementById("newPlayerName").value.trim();
+  const birthdate = document.getElementById("newPlayerBirthdate").value;
+  const detailed_position = document.getElementById("newPlayerPos").value;
+
+  if (!name) {
+    alert("Por favor introduce el nombre del jugador");
+    return;
+  }
+
+  await fetch(`${API_BASE}/teams/${currentTeamId}/players`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, birthdate, detailed_position, team_id: currentTeamId })
+  });
+
+  closeAddPlayerModal();
+  document.getElementById("newPlayerName").value = "";
+  await loadPlayers();
+}
+
+// Drag & Drop CSV Uploader
+function setupCSVDropzone() {
+  const dropzone = document.getElementById("csvDropzone");
+  if (!dropzone) return;
+  dropzone.addEventListener("click", () => document.getElementById("csvFileInput").click());
+  dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
+  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("dragover");
+    if (e.dataTransfer.files.length > 0) {
+      uploadCSVFile(e.dataTransfer.files[0]);
+    }
+  });
+}
+
+function handleFileSelect(event) {
+  if (event.target.files.length > 0) {
+    uploadCSVFile(event.target.files[0]);
+  }
+}
+
+async function uploadCSVFile(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const res = await fetch(`${API_BASE}/teams/${currentTeamId}/players/import-csv`, {
+      method: "POST",
+      body: formData
+    });
+    const data = await res.json();
+    alert(`Importados con éxito ${data.imported_count} jugadores.`);
+    await loadPlayers();
+  } catch (err) {
+    alert("Error al importar el archivo CSV/Excel");
+  }
+}
+
+// Match Management (Add, Edit, Delete)
+function openAddMatchModal() {
+  document.getElementById("newMatchOpponent").value = "";
+  document.getElementById("newMatchDate").value = new Date().toISOString().split("T")[0];
+  document.getElementById("newMatchCompetition").value = "LALIGA HYPERMOTION";
+  document.getElementById("newMatchIsHome").value = "true";
+  document.getElementById("newMatchResultType").value = "WIN";
+  document.getElementById("newMatchHomeGoals").value = "2";
+  document.getElementById("newMatchAwayGoals").value = "0";
+  document.getElementById("newMatchPlayingTime").value = "90 Minutes";
+  document.getElementById("newMatchCadence").value = "";
+  document.getElementById("addMatchModal").classList.add("active");
+}
+
+function closeAddMatchModal() {
+  document.getElementById("addMatchModal").classList.remove("active");
+}
+
+async function submitAddMatch() {
+  const opponent = document.getElementById("newMatchOpponent").value.trim();
+  if (!opponent) {
+    alert("Por favor, introduce el nombre del equipo rival.");
+    return;
+  }
+
+  const date = document.getElementById("newMatchDate").value || new Date().toISOString().split("T")[0];
+  const competition = document.getElementById("newMatchCompetition").value.trim() || "LALIGA HYPERMOTION";
+  const is_home = document.getElementById("newMatchIsHome").value === "true";
+  const result_type = document.getElementById("newMatchResultType").value;
+  const home_goals = parseInt(document.getElementById("newMatchHomeGoals").value) || 0;
+  const away_goals = parseInt(document.getElementById("newMatchAwayGoals").value) || 0;
+  const playing_time = document.getElementById("newMatchPlayingTime").value.trim() || "90 Minutes";
+  const substitute_cadence = document.getElementById("newMatchCadence").value.trim();
+
+  const payload = {
+    team_id: currentTeamId,
+    opponent: opponent,
+    date: date,
+    competition: competition,
+    is_home: is_home,
+    result_type: result_type,
+    home_goals: home_goals,
+    away_goals: away_goals,
+    playing_time: playing_time,
+    substitute_cadence: substitute_cadence
+  };
+
+  try {
+    const res = await fetch(`${API_BASE}/matches`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      alert(`Error al crear partido: ${err.detail || 'Error desconocido'}`);
+      return;
+    }
+
+    const createdMatch = await res.json();
+    closeAddMatchModal();
+    
+    await loadMatches();
+    const select = document.getElementById("matchSelect");
+    if (select) {
+      select.value = createdMatch.id;
+      await loadMatchTactics(createdMatch.id);
+    }
+    
+    await renderLivePreviews();
+    renderExportMatchesChecklist();
+
+    alert(`✓ Partido frente a ${opponent} añadido con éxito.`);
+  } catch (err) {
+    console.error("Error creating match:", err);
+    alert("Error de conexión al crear el partido.");
+  }
+}
+
+function openEditMatchModal() {
+  if (!currentMatchDetails || !currentMatchDetails.match) {
+    alert("Selecciona un partido primero.");
+    return;
+  }
+  const m = currentMatchDetails.match;
+  document.getElementById("editMatchOpponent").value = m.opponent || "";
+  document.getElementById("editMatchDate").value = m.date || "";
+  document.getElementById("editMatchCompetition").value = m.competition || "LALIGA HYPERMOTION";
+  document.getElementById("editMatchIsHome").value = m.is_home ? "true" : "false";
+  document.getElementById("editMatchResultType").value = m.result_type || "WIN";
+  document.getElementById("editMatchHomeGoals").value = m.home_goals || 0;
+  document.getElementById("editMatchAwayGoals").value = m.away_goals || 0;
+  document.getElementById("editMatchPlayingTime").value = m.playing_time || "90 Minutes";
+  document.getElementById("editMatchCadence").value = m.substitute_cadence || "";
+  document.getElementById("editMatchModal").classList.add("active");
+}
+
+function closeEditMatchModal() {
+  document.getElementById("editMatchModal").classList.remove("active");
+}
+
+async function submitEditMatch() {
+  if (!currentMatchId) return;
+  const opponent = document.getElementById("editMatchOpponent").value.trim();
+  if (!opponent) {
+    alert("Por favor, introduce el nombre del rival.");
+    return;
+  }
+
+  const payload = {
+    opponent: opponent,
+    date: document.getElementById("editMatchDate").value,
+    competition: document.getElementById("editMatchCompetition").value.trim(),
+    is_home: document.getElementById("editMatchIsHome").value === "true",
+    result_type: document.getElementById("editMatchResultType").value,
+    home_goals: parseInt(document.getElementById("editMatchHomeGoals").value) || 0,
+    away_goals: parseInt(document.getElementById("editMatchAwayGoals").value) || 0,
+    playing_time: document.getElementById("editMatchPlayingTime").value.trim(),
+    substitute_cadence: document.getElementById("editMatchCadence").value.trim()
+  };
+
+  try {
+    const res = await fetch(`${API_BASE}/matches/${currentMatchId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    if (res.ok) {
+      closeEditMatchModal();
+      await loadMatches();
+      const select = document.getElementById("matchSelect");
+      if (select) select.value = currentMatchId;
+      await loadMatchTactics(currentMatchId);
+      await renderLivePreviews();
+      renderExportMatchesChecklist();
+      alert("✓ Datos del partido actualizados con éxito.");
+    } else {
+      alert("Error al actualizar los datos del partido.");
+    }
+  } catch (err) {
+    console.error("Error updating match:", err);
+    alert("Error de conexión al actualizar el partido.");
+  }
+}
+
+async function deleteCurrentMatch() {
+  if (!currentMatchId) {
+    alert("No hay ningún partido seleccionado para eliminar.");
+    return;
+  }
+
+  const currentMatch = currentMatches.find(m => m.id === currentMatchId);
+  const matchName = currentMatch ? `${currentMatch.opponent} (${currentMatch.result_type})` : "este partido";
+
+  if (!confirm(`¿Estás seguro de que deseas eliminar definitivamente el partido ${matchName}?`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/matches/${currentMatchId}`, {
+      method: "DELETE"
+    });
+
+    if (res.ok) {
+      alert("✓ Partido eliminado con éxito.");
+      currentMatchId = null;
+      currentMatchDetails = null;
+      await loadMatches();
+      await renderLivePreviews();
+      renderExportMatchesChecklist();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert(`Error al eliminar el partido: ${err.detail || 'Error en el servidor'}`);
+    }
+  } catch (err) {
+    console.error("Error deleting match:", err);
+    alert("Error de conexión al eliminar el partido.");
+  }
+}
+
+// Lineup Modal & Squad Selector
+async function openManageLineupModal() {
+  if (!currentMatchId) {
+    alert("Selecciona un partido primero.");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/matches/${currentMatchId}/squad_roster`);
+    const data = await res.json();
+    tempMatchRoster = data.roster;
+    renderLineupRosterMatrix();
+    document.getElementById("manageLineupModal").classList.add("active");
+  } catch (err) {
+    console.error("Error loading squad roster:", err);
+    alert("Error al cargar la plantilla del partido.");
+  }
+}
+
+function closeManageLineupModal() {
+  document.getElementById("manageLineupModal").classList.remove("active");
+}
+
+function getTacticalCoordsForRole(role) {
+  const roleCoords = {
+    "GK": [0.50, 0.88],
+    "LB": [0.18, 0.72],
+    "LCB": [0.38, 0.77],
+    "CB": [0.50, 0.77],
+    "RCB": [0.62, 0.77],
+    "RB": [0.82, 0.72],
+    "DM": [0.50, 0.62],
+    "LDM": [0.40, 0.62],
+    "RDM": [0.60, 0.62],
+    "LCM": [0.35, 0.50],
+    "CM": [0.50, 0.50],
+    "RCM": [0.65, 0.50],
+    "CAM": [0.50, 0.38],
+    "LW": [0.18, 0.28],
+    "RW": [0.82, 0.28],
+    "ST": [0.50, 0.16],
+    "LST": [0.42, 0.16],
+    "RST": [0.58, 0.16]
+  };
+  return roleCoords[role] || [0.50, 0.50];
+}
+
+function renderLineupRosterMatrix() {
+  const container = document.getElementById("rosterMatrixContainer");
+  if (!container) return;
+
+  const startersCount = tempMatchRoster.filter(p => p.match_status === "STARTER").length;
+  const badge = document.getElementById("lineupStartersCountBadge");
+  if (badge) {
+    badge.innerText = `${startersCount} / 11`;
+    badge.style.background = startersCount === 11 ? "#059669" : (startersCount > 11 ? "#dc2626" : "#d97706");
+  }
+
+  const msg = document.getElementById("lineupValidationMessage");
+  if (msg) {
+    if (startersCount === 11) {
+      msg.innerText = "✓ Once titular completo (11 jugadores seleccionados)";
+      msg.style.color = "#059669";
+    } else if (startersCount < 11) {
+      msg.innerText = `Faltan ${11 - startersCount} titulares para completar el once`;
+      msg.style.color = "#d97706";
+    } else {
+      msg.innerText = `Has seleccionado ${startersCount - 11} titulares de más (máximo 11)`;
+      msg.style.color = "#dc2626";
+    }
+  }
+
+  const roleOptions = [
+    { value: "GK", label: "GK (Portero)" },
+    { value: "LB", label: "LB (Lateral Izquierdo)" },
+    { value: "LCB", label: "LCB (Central Izquierdo)" },
+    { value: "CB", label: "CB (Central)" },
+    { value: "RCB", label: "RCB (Central Derecho)" },
+    { value: "RB", label: "RB (Lateral Derecho)" },
+    { value: "DM", label: "DM (Pivote Defensivo)" },
+    { value: "LCM", label: "LCM (Interior Izq)" },
+    { value: "CM", label: "CM (Centrocampista)" },
+    { value: "RCM", label: "RCM (Interior Dcho)" },
+    { value: "CAM", label: "CAM (Mediapunta)" },
+    { value: "LW", label: "LW (Extremo Izquierdo)" },
+    { value: "RW", label: "RW (Extremo Derecho)" },
+    { value: "ST", label: "ST (Delantero Centro)" }
+  ];
+
+  container.innerHTML = tempMatchRoster.map(p => {
+    const isStarter = p.match_status === "STARTER";
+    const isSub = p.match_status === "SUBSTITUTE";
+    const isNone = p.match_status === "UNSELECTED";
+
+    return `
+      <div class="roster-player-row ${isStarter ? 'is-starter' : (isSub ? 'is-sub' : '')}">
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex: 1; min-width: 220px;">
+          <div>
+            <div style="font-weight: 700; color: var(--navy-primary); font-size: 0.88rem;">${p.name}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">${p.detailed_position} • ${p.age} años</div>
+          </div>
+        </div>
+
+        <!-- Status Pills -->
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <div class="status-pill-group">
+            <button class="status-pill ${isStarter ? 'active-starter' : ''}" onclick="setPlayerMatchStatus('${p.id}', 'STARTER')">⭐ Titular</button>
+            <button class="status-pill ${isSub ? 'active-sub' : ''}" onclick="setPlayerMatchStatus('${p.id}', 'SUBSTITUTE')">🪑 Suplente</button>
+            <button class="status-pill ${isNone ? 'active-none' : ''}" onclick="setPlayerMatchStatus('${p.id}', 'UNSELECTED')">⚪ Fuera</button>
+          </div>
+
+          <!-- Role Selector for Starters -->
+          ${isStarter ? `
+            <select class="form-control" style="font-size: 0.75rem; padding: 3px 6px; width: 145px;" onchange="setPlayerRole('${p.id}', this.value)">
+              ${roleOptions.map(opt => `<option value="${opt.value}" ${p.field_position === opt.value ? 'selected' : ''}>${opt.label}</option>`).join("")}
+            </select>
+          ` : `<div style="width: 145px;"></div>`}
+
+          <!-- Cards Controls -->
+          <div style="display: flex; align-items: center; gap: 0.3rem;">
+            <select class="form-control" style="font-size: 0.75rem; padding: 3px 6px; width: 95px;" onchange="setPlayerCardType('${p.id}', this.value)">
+              <option value="NONE" ${(!p.has_yellow_card && !p.has_red_card) ? 'selected' : ''}>Sin Tarjeta</option>
+              <option value="YELLOW" ${p.has_yellow_card ? 'selected' : ''}>🟨 Amarilla</option>
+              <option value="RED" ${p.has_red_card ? 'selected' : ''}>🟥 Roja</option>
+            </select>
+            ${(p.has_yellow_card || p.has_red_card) ? `
+              <input type="number" class="form-control" style="font-size: 0.75rem; padding: 3px 4px; width: 55px;" placeholder="Min" value="${p.card_minute || 35}" min="1" max="120" onchange="setPlayerCardMinute('${p.id}', this.value)" title="Minuto de la tarjeta">
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function setPlayerMatchStatus(playerId, status) {
+  const p = tempMatchRoster.find(x => x.id === playerId);
+  if (!p) return;
+  p.match_status = status;
+  if (status === "STARTER" && (!p.field_position || p.field_position === "NONE" || p.field_position === "SUB")) {
+    const pos = p.detailed_position.toLowerCase();
+    if (pos.includes("portero")) p.field_position = "GK";
+    else if (pos.includes("lateral") && pos.includes("izq")) p.field_position = "LB";
+    else if (pos.includes("lateral") && pos.includes("dch")) p.field_position = "RB";
+    else if (pos.includes("central")) p.field_position = "CB";
+    else if (pos.includes("pivote")) p.field_position = "DM";
+    else if (pos.includes("extremo") && pos.includes("izq")) p.field_position = "LW";
+    else if (pos.includes("extremo") && pos.includes("dch")) p.field_position = "RW";
+    else if (pos.includes("delantero")) p.field_position = "ST";
+    else p.field_position = "CM";
+
+    const coords = getTacticalCoordsForRole(p.field_position);
+    p.grid_x = coords[0];
+    p.grid_y = coords[1];
+  }
+  renderLineupRosterMatrix();
+}
+
+function setPlayerRole(playerId, role) {
+  const p = tempMatchRoster.find(x => x.id === playerId);
+  if (!p) return;
+  p.field_position = role;
+  const coords = getTacticalCoordsForRole(role);
+  p.grid_x = coords[0];
+  p.grid_y = coords[1];
+  renderLineupRosterMatrix();
+}
+
+function setPlayerCardType(playerId, type) {
+  const p = tempMatchRoster.find(x => x.id === playerId);
+  if (!p) return;
+  if (type === "YELLOW") {
+    p.has_yellow_card = true;
+    p.has_red_card = false;
+    p.card_type = "YELLOW";
+    p.card_minute = p.card_minute || 35;
+  } else if (type === "RED") {
+    p.has_yellow_card = false;
+    p.has_red_card = true;
+    p.card_type = "RED";
+    p.card_minute = p.card_minute || 75;
+  } else {
+    p.has_yellow_card = false;
+    p.has_red_card = false;
+    p.card_type = null;
+    p.card_minute = null;
+  }
+  renderLineupRosterMatrix();
+}
+
+function setPlayerCardMinute(playerId, min) {
+  const p = tempMatchRoster.find(x => x.id === playerId);
+  if (!p) return;
+  p.card_minute = parseInt(min) || null;
+}
+
+function clearAllLineupSelections() {
+  tempMatchRoster.forEach(p => {
+    p.match_status = "UNSELECTED";
+    p.has_yellow_card = false;
+    p.has_red_card = false;
+    p.card_minute = null;
+  });
+  renderLineupRosterMatrix();
+}
+
+function applyLineupPreset(preset) {
+  clearAllLineupSelections();
+
+  const gks = tempMatchRoster.filter(p => p.detailed_position.toLowerCase().includes("portero"));
+  const lbs = tempMatchRoster.filter(p => p.detailed_position.toLowerCase().includes("lateral") && p.detailed_position.toLowerCase().includes("izq"));
+  const rbs = tempMatchRoster.filter(p => p.detailed_position.toLowerCase().includes("lateral") && p.detailed_position.toLowerCase().includes("dch"));
+  const cbs = tempMatchRoster.filter(p => p.detailed_position.toLowerCase().includes("central") && !lbs.includes(p) && !rbs.includes(p));
+  const dms = tempMatchRoster.filter(p => p.detailed_position.toLowerCase().includes("pivote") || p.detailed_position.toLowerCase().includes("defensivo"));
+  const cms = tempMatchRoster.filter(p => (p.detailed_position.toLowerCase().includes("medio") || p.detailed_position.toLowerCase().includes("interior")) && !dms.includes(p));
+  const lws = tempMatchRoster.filter(p => p.detailed_position.toLowerCase().includes("extremo") && p.detailed_position.toLowerCase().includes("izq"));
+  const rws = tempMatchRoster.filter(p => p.detailed_position.toLowerCase().includes("extremo") && p.detailed_position.toLowerCase().includes("dch"));
+  const sts = tempMatchRoster.filter(p => p.detailed_position.toLowerCase().includes("delantero") || p.detailed_position.toLowerCase().includes("punta"));
+
+  const starters = [];
+
+  const addStarter = (player, role) => {
+    if (!player || starters.includes(player)) return;
+    player.match_status = "STARTER";
+    player.field_position = role;
+    const c = getTacticalCoordsForRole(role);
+    player.grid_x = c[0];
+    player.grid_y = c[1];
+    starters.push(player);
+  };
+
+  // 1. GK
+  if (gks.length > 0) addStarter(gks[0], "GK");
+
+  if (preset === "4-3-3") {
+    if (lbs.length > 0) addStarter(lbs[0], "LB");
+    if (cbs.length > 0) addStarter(cbs[0], "LCB");
+    if (cbs.length > 1) addStarter(cbs[1], "RCB");
+    else if (cbs.length > 0 && tempMatchRoster.filter(p => p.detailed_position.toLowerCase().includes("defensa") && !starters.includes(p)).length > 0) {
+      addStarter(tempMatchRoster.filter(p => p.detailed_position.toLowerCase().includes("defensa") && !starters.includes(p))[0], "RCB");
+    }
+    if (rbs.length > 0) addStarter(rbs[0], "RB");
+
+    if (dms.length > 0) addStarter(dms[0], "DM");
+    const avCms = cms.filter(p => !starters.includes(p));
+    if (avCms.length > 0) addStarter(avCms[0], "LCM");
+    if (avCms.length > 1) addStarter(avCms[1], "RCM");
+
+    if (lws.length > 0) addStarter(lws[0], "LW");
+    else if (sts.filter(p => !starters.includes(p)).length > 1) addStarter(sts.filter(p => !starters.includes(p))[0], "LW");
+
+    const avSts = sts.filter(p => !starters.includes(p));
+    if (avSts.length > 0) addStarter(avSts[0], "ST");
+
+    if (rws.length > 0) addStarter(rws[0], "RW");
+    else if (sts.filter(p => !starters.includes(p)).length > 0) addStarter(sts.filter(p => !starters.includes(p))[0], "RW");
+  } else if (preset === "4-4-2") {
+    if (lbs.length > 0) addStarter(lbs[0], "LB");
+    if (cbs.length > 0) addStarter(cbs[0], "LCB");
+    if (cbs.length > 1) addStarter(cbs[1], "RCB");
+    if (rbs.length > 0) addStarter(rbs[0], "RB");
+
+    if (lws.length > 0) addStarter(lws[0], "LW");
+    const avCms = cms.filter(p => !starters.includes(p));
+    if (avCms.length > 0) addStarter(avCms[0], "LCM");
+    if (avCms.length > 1) addStarter(avCms[1], "RCM");
+    if (rws.length > 0) addStarter(rws[0], "RW");
+
+    const avSts = sts.filter(p => !starters.includes(p));
+    if (avSts.length > 0) addStarter(avSts[0], "LST");
+    if (avSts.length > 1) addStarter(avSts[1], "RST");
+  } else if (preset === "3-5-2") {
+    if (cbs.length > 0) addStarter(cbs[0], "LCB");
+    if (cbs.length > 1) addStarter(cbs[1], "CB");
+    if (cbs.length > 2) addStarter(cbs[2], "RCB");
+
+    if (lbs.length > 0) addStarter(lbs[0], "LB");
+    if (dms.length > 0) addStarter(dms[0], "DM");
+    const avCms = cms.filter(p => !starters.includes(p));
+    if (avCms.length > 0) addStarter(avCms[0], "LCM");
+    if (avCms.length > 1) addStarter(avCms[1], "RCM");
+    if (rbs.length > 0) addStarter(rbs[0], "RB");
+
+    const avSts = sts.filter(p => !starters.includes(p));
+    if (avSts.length > 0) addStarter(avSts[0], "LST");
+    if (avSts.length > 1) addStarter(avSts[1], "RST");
+  }
+
+  // Fill up to 11 if needed
+  tempMatchRoster.forEach(p => {
+    if (starters.length < 11 && !starters.includes(p)) {
+      addStarter(p, "CM");
+    }
+  });
+
+  // Assign remaining players as SUBSTITUTES
+  tempMatchRoster.forEach(p => {
+    if (!starters.includes(p)) {
+      p.match_status = "SUBSTITUTE";
+    }
+  });
+
+  renderLineupRosterMatrix();
+}
+
+async function submitSaveLineup() {
+  if (!currentMatchId) return;
+
+  const starters = tempMatchRoster.filter(p => p.match_status === "STARTER").map(p => ({
+    player_id: p.id,
+    field_position: p.field_position || "POS",
+    grid_x: p.grid_x || 0.5,
+    grid_y: p.grid_y || 0.5,
+    has_yellow_card: p.has_yellow_card,
+    has_red_card: p.has_red_card,
+    card_minute: p.card_minute,
+    card_type: p.card_type,
+    sub_out_minute: p.sub_out_minute
+  }));
+
+  const substitutes = tempMatchRoster.filter(p => p.match_status === "SUBSTITUTE").map(p => ({
+    player_id: p.id,
+    field_position: "SUB",
+    has_yellow_card: p.has_yellow_card,
+    has_red_card: p.has_red_card,
+    card_minute: p.card_minute,
+    card_type: p.card_type,
+    sub_in_minute: p.sub_in_minute
+  }));
+
+  const subs_events = currentMatchDetails ? currentMatchDetails.substitutions : [];
+
+  const payload = {
+    starters: starters,
+    substitutes: substitutes,
+    substitutions: subs_events
+  };
+
+  try {
+    const res = await fetch(`${API_BASE}/matches/${currentMatchId}/lineup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    if (res.ok) {
+      closeManageLineupModal();
+      await loadMatchTactics(currentMatchId);
+      await renderLivePreviews();
+      renderExportMatchesChecklist();
+      alert(`✓ Convocatoria guardada: ${starters.length} titulares y ${substitutes.length} suplentes.`);
+    } else {
+      alert("Error al guardar la alineación.");
+    }
+  } catch (err) {
+    console.error("Error saving lineup:", err);
+    alert("Error de conexión al guardar la alineación.");
+  }
+}
+
+// Matches & Tactics
+async function loadMatches() {
+  try {
+    const res = await fetch(`${API_BASE}/teams/${currentTeamId}/matches`);
+    currentMatches = await res.json();
+    
+    const select = document.getElementById("matchSelect");
+    if (!select) return;
+
+    if (currentMatches.length === 0) {
+      select.innerHTML = `<option value="">(Sin partidos registrados)</option>`;
+      currentMatchId = null;
+      currentMatchDetails = null;
+      document.getElementById("tacticalPitchContainer").innerHTML = `<div style="color: white; text-align: center; padding-top: 150px; font-weight: 600;">No hay partidos creados para este equipo. Haz clic en "+ Nuevo Partido" para crear uno.</div>`;
+      document.getElementById("substitutesListContainer").innerHTML = "";
+      document.getElementById("substitutionsLogContainer").innerHTML = "";
+      document.getElementById("cardsListContainer").innerHTML = "";
+      document.getElementById("matchQuickSummary").innerHTML = "";
+      return;
+    }
+
+    select.innerHTML = currentMatches.map(m => `<option value="${m.id}">${m.opponent} (${m.result_type} ${m.home_goals}-${m.away_goals})</option>`).join("");
+    
+    if (!currentMatchId || !currentMatches.some(m => m.id === currentMatchId)) {
+      currentMatchId = currentMatches[0].id;
+    }
+    select.value = currentMatchId;
+    await loadMatchTactics(currentMatchId);
+  } catch (err) {
+    console.error("Error loading matches:", err);
+  }
+}
+
+async function loadMatchTactics(matchId) {
+  if (!matchId) return;
+  currentMatchId = matchId;
+  try {
+    const res = await fetch(`${API_BASE}/matches/${matchId}`);
+    currentMatchDetails = await res.json();
+    renderMatchQuickSummary();
+    renderTacticalPitch();
+    renderSubstitutesPanel();
+    renderSubstitutionsLog();
+    renderCardsList();
+    renderGoalsList();
+    populateSubDropdowns();
+  } catch (err) {
+    console.error("Error loading match tactics:", err);
+  }
+}
+
+function renderMatchQuickSummary() {
+  const container = document.getElementById("matchQuickSummary");
+  if (!container || !currentMatchDetails) return;
+  const m = currentMatchDetails.match;
+  const resultClass = m.result_type === "WIN" ? "badge-success" : (m.result_type === "DRAW" ? "badge-warning" : "badge-danger");
+  const resultText = m.result_type === "WIN" ? "Victoria" : (m.result_type === "DRAW" ? "Empate" : "Derrota");
+
+  container.innerHTML = `
+    <span class="badge ${resultClass}" style="font-weight: 700;">${resultText} ${m.home_goals} - ${m.away_goals}</span>
+    <span class="badge" style="background: #e2e8f0; color: var(--navy-primary); font-weight: 600;">📅 ${m.date}</span>
+    <span class="badge" style="background: #e2e8f0; color: var(--navy-primary); font-weight: 600;">🏆 ${m.competition}</span>
+    <span class="badge" style="background: #e2e8f0; color: var(--navy-primary); font-weight: 600;">⏱️ ${m.playing_time || '90 Min'}</span>
+  `;
+}
+
+
+
+function renderTacticalPitch() {
+  const container = document.getElementById("tacticalPitchContainer");
+  if (!container || !currentMatchDetails) return;
+
+  const starters = currentMatchDetails.starters;
+  const playersMap = currentMatchDetails.players_map;
+  const subsEvents = currentMatchDetails.substitutions;
+  const subbedOutMap = {};
+  subsEvents.forEach(se => subbedOutMap[se.player_out_id] = se.minute);
+
+  container.innerHTML = `
+    <div class="pitch-svg-canvas" id="tacticalEditorPitchCanvas">
+      ${starters.map(st => {
+        const p = playersMap[st.player_id] || { name: 'Jugador' };
+        const subMin = subbedOutMap[st.player_id] || st.sub_out_minute;
+        
+        let badgesHtml = "";
+        if (st.goals && st.goals > 0) {
+          badgesHtml += `<div class="event-badge goal-badge">${st.goals}⚽</div>`;
+        }
+        if (subMin) {
+          badgesHtml += `<div class="event-badge sub-out-badge">${subMin}'</div>`;
+        }
+        if (st.has_red_card) {
+          badgesHtml += `<div class="yellow-card-badge" style="background-color: #ef4444; border-color: #b91c1c;"></div>`;
+        } else if (st.has_yellow_card) {
+          badgesHtml += `<div class="yellow-card-badge"></div>`;
+        }
+        
+        const leftPct = (st.grid_x * 100).toFixed(1);
+        const topPct = (st.grid_y * 100).toFixed(1);
+        
+        return `
+          <div class="pitch-player-box" data-player-id="${st.player_id}" data-player-name="${p.name}" style="left: ${leftPct}%; top: ${topPct}%;" title="Arrastra para mover en el campo">
+            <div class="player-photo-circle">
+              ${badgesHtml}
+            </div>
+            <div class="player-name-pill">${p.name}</div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+
+  const canvas = document.getElementById("tacticalEditorPitchCanvas");
+  if (canvas) attachPitchDragListeners(canvas, false);
+}
+
+function renderSubstitutesPanel() {
+  const container = document.getElementById("substitutesListContainer");
+  if (!container || !currentMatchDetails) return;
+
+  const substitutes = currentMatchDetails.substitutes;
+  const playersMap = currentMatchDetails.players_map;
+  const subbedInMap = {};
+  currentMatchDetails.substitutions.forEach(se => subbedInMap[se.player_in_id] = se.minute);
+
+  const badge = document.getElementById("subsCountBadge");
+  if (badge) badge.innerText = substitutes.length;
+
+  if (substitutes.length === 0) {
+    container.innerHTML = `<div style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">No hay suplentes en la convocatoria.</div>`;
+    return;
+  }
+
+  container.innerHTML = substitutes.map(sub => {
+    const p = playersMap[sub.player_id] || { name: 'Suplente' };
+    const min = subbedInMap[sub.player_id] || sub.sub_in_minute;
+
+    let cardHtml = "";
+    if (sub.has_red_card) {
+      cardHtml = ` <span class="card-badge-pill card-red">${sub.card_minute ? sub.card_minute + '’ ' : ''}🟥</span>`;
+    } else if (sub.has_yellow_card) {
+      cardHtml = ` <span class="card-badge-pill card-yellow">${sub.card_minute ? sub.card_minute + '’ ' : ''}🟨</span>`;
+    }
+
+    if (min) {
+      return `<div style="color: #00994c; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">▲ ${p.name} (${min}’)${cardHtml}</div>`;
+    }
+    return `<div style="color: var(--navy-primary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">• ${p.name}${cardHtml}</div>`;
+  }).join("");
+}
+
+function renderSubstitutionsLog() {
+  const container = document.getElementById("substitutionsLogContainer");
+  if (!container || !currentMatchDetails) return;
+
+  const subsEvents = currentMatchDetails.substitutions;
+  const playersMap = currentMatchDetails.players_map;
+
+  const badge = document.getElementById("subsDoneCountBadge");
+  if (badge) badge.innerText = subsEvents.length;
+
+  if (subsEvents.length === 0) {
+    container.innerHTML = `<div style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Sin sustituciones registradas.</div>`;
+    return;
+  }
+
+  container.innerHTML = subsEvents.map((ev, idx) => {
+    const pOut = playersMap[ev.player_out_id] || { name: 'Sale' };
+    const pIn = playersMap[ev.player_in_id] || { name: 'Entra' };
+
+    return `
+      <div class="sub-event-card">
+        <div>
+          <span style="font-weight: 700; color: var(--navy-primary);">${ev.minute}’</span> 
+          <span style="color: #00994c; font-weight: 600;">🔺 ${pIn.name}</span> 
+          <span style="color: var(--text-muted); font-size: 0.75rem;">por</span> 
+          <span style="color: #dc2626; font-weight: 600;">🔻 ${pOut.name}</span>
+        </div>
+        <button class="btn btn-secondary" style="padding: 2px 6px; font-size: 0.72rem; color: #dc2626;" onclick="deleteSubstitutionEvent(${idx})" title="Deshacer este cambio">🗑️</button>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderCardsList() {
+  const container = document.getElementById("cardsListContainer");
+  if (!container || !currentMatchDetails) return;
+
+  const starters = currentMatchDetails.starters;
+  const substitutes = currentMatchDetails.substitutes;
+  const playersMap = currentMatchDetails.players_map;
+
+  const carded = [];
+  [...starters, ...substitutes].forEach(entry => {
+    if (entry.has_yellow_card || entry.has_red_card) {
+      const p = playersMap[entry.player_id] || { name: 'Jugador' };
+      carded.push({
+        player_id: entry.player_id,
+        name: p.name,
+        is_red: entry.has_red_card,
+        minute: entry.card_minute
+      });
+    }
+  });
+
+  if (carded.length === 0) {
+    container.innerHTML = `<div style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Sin tarjetas registradas.</div>`;
+    return;
+  }
+
+  container.innerHTML = carded.map(c => `
+    <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 4px 8px; border-radius: 4px; border: 1px solid #e2e8f0; margin-bottom: 4px;">
+      <div>
+        <span class="card-badge-pill ${c.is_red ? 'card-red' : 'card-yellow'}">${c.is_red ? '🟥 Roja' : '🟨 Amarilla'}</span>
+        <strong style="color: var(--navy-primary); font-size: 0.8rem; margin-left: 4px;">${c.name}</strong>
+        ${c.minute ? `<span style="color: var(--text-muted); font-size: 0.75rem;">(Min ${c.minute}’)</span>` : ''}
+      </div>
+      <button class="btn btn-secondary" style="padding: 1px 5px; font-size: 0.7rem; color: #dc2626;" onclick="removeCardFromPlayer('${c.player_id}')" title="Quitar tarjeta">✕</button>
+    </div>
+  `).join("");
+}
+
+function renderGoalsList() {
+  const container = document.getElementById("goalsListContainer");
+  if (!container || !currentMatchDetails) return;
+
+  const starters = currentMatchDetails.starters;
+  const substitutes = currentMatchDetails.substitutes;
+  const playersMap = currentMatchDetails.players_map;
+
+  const goalScorers = [];
+  [...starters, ...substitutes].forEach(entry => {
+    if (entry.goals && entry.goals > 0) {
+      const p = playersMap[entry.player_id] || { name: 'Jugador' };
+      goalScorers.push({
+        player_id: entry.player_id,
+        name: p.name,
+        goals: entry.goals
+      });
+    }
+  });
+
+  if (goalScorers.length === 0) {
+    container.innerHTML = `<div style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Sin goles registrados.</div>`;
+    return;
+  }
+
+  container.innerHTML = goalScorers.map(g => `
+    <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 4px 8px; border-radius: 4px; border: 1px solid #e2e8f0; margin-bottom: 4px;">
+      <div>
+        <span style="font-size: 0.85rem;">⚽</span>
+        <strong style="color: var(--navy-primary); font-size: 0.8rem; margin-left: 4px;">${g.name}</strong>
+        <span style="color: var(--text-muted); font-size: 0.75rem; margin-left: 4px;">(${g.goals} gol${g.goals > 1 ? 'es' : ''})</span>
+      </div>
+      <button class="btn btn-secondary" style="padding: 1px 5px; font-size: 0.7rem; color: #dc2626;" onclick="removeGoalFromPlayer('${g.player_id}')" title="Quitar goles">✕</button>
+    </div>
+  `).join("");
+}
+
+function populateSubDropdowns() {
+  if (!currentMatchDetails) return;
+  const starters = currentMatchDetails.starters;
+  const substitutes = currentMatchDetails.substitutes;
+  const playersMap = currentMatchDetails.players_map;
+
+  const subOutSelect = document.getElementById("subOutSelect");
+  if (subOutSelect) {
+    subOutSelect.innerHTML = starters.map(st => {
+      const p = playersMap[st.player_id] || { name: 'Jugador' };
+      return `<option value="${st.player_id}">${p.name}</option>`;
+    }).join("");
+  }
+
+  const subInSelect = document.getElementById("subInSelect");
+  if (subInSelect) {
+    subInSelect.innerHTML = substitutes.map(sub => {
+      const p = playersMap[sub.player_id] || { name: 'Jugador' };
+      return `<option value="${sub.player_id}">${p.name}</option>`;
+    }).join("");
+  }
+
+  const cardSelect = document.getElementById("cardPlayerSelect");
+  if (cardSelect) {
+    const allMatchPlayers = [...starters, ...substitutes];
+    cardSelect.innerHTML = allMatchPlayers.map(entry => {
+      const p = playersMap[entry.player_id] || { name: 'Jugador' };
+      return `<option value="${entry.player_id}">${p.name} (${entry.is_starter ? 'Titular' : 'Suplente'})</option>`;
+    }).join("");
+  }
+  const goalSelect = document.getElementById("goalPlayerSelect");
+  if (goalSelect) {
+    const allMatchPlayers = [...starters, ...substitutes];
+    goalSelect.innerHTML = allMatchPlayers.map(entry => {
+      const p = playersMap[entry.player_id] || { name: 'Jugador' };
+      return `<option value="${entry.player_id}">${p.name} (${entry.is_starter ? 'Titular' : 'Suplente'})</option>`;
+    }).join("");
+  }
+}
+
+async function addGoalToPlayer() {
+  const playerId = document.getElementById("goalPlayerSelect").value;
+  const goalsToAdd = parseInt(document.getElementById("goalAmountInput").value) || 1;
+
+  if (!playerId || !currentMatchDetails) return;
+
+  const starters = currentMatchDetails.starters.map(s => {
+    if (s.player_id === playerId) {
+      return { ...s, goals: (s.goals || 0) + goalsToAdd };
+    }
+    return s;
+  });
+
+  const substitutes = currentMatchDetails.substitutes.map(s => {
+    if (s.player_id === playerId) {
+      return { ...s, goals: (s.goals || 0) + goalsToAdd };
+    }
+    return s;
+  });
+
+  const payload = {
+    starters: starters,
+    substitutes: substitutes,
+    substitutions: currentMatchDetails.substitutions
+  };
+
+  try {
+    await fetch(`${API_BASE}/matches/${currentMatchId}/lineup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    await loadMatchTactics(currentMatchId);
+    await renderLivePreviews();
+  } catch (err) {
+    console.error("Error adding goal:", err);
+  }
+}
+
+async function removeGoalFromPlayer(playerId) {
+  if (!currentMatchDetails) return;
+
+  const starters = currentMatchDetails.starters.map(s => {
+    if (s.player_id === playerId) {
+      return { ...s, goals: 0 };
+    }
+    return s;
+  });
+
+  const substitutes = currentMatchDetails.substitutes.map(s => {
+    if (s.player_id === playerId) {
+      return { ...s, goals: 0 };
+    }
+    return s;
+  });
+
+  const payload = {
+    starters: starters,
+    substitutes: substitutes,
+    substitutions: currentMatchDetails.substitutions
+  };
+
+  try {
+    await fetch(`${API_BASE}/matches/${currentMatchId}/lineup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    await loadMatchTactics(currentMatchId);
+    await renderLivePreviews();
+  } catch (err) {
+    console.error("Error removing goal:", err);
+  }
+}
+
+async function addSubstitutionEvent() {
+  const player_out_id = document.getElementById("subOutSelect").value;
+  const player_in_id = document.getElementById("subInSelect").value;
+  const minute = parseInt(document.getElementById("subMinuteInput").value) || 65;
+
+  if (!player_out_id || !player_in_id) {
+    alert("Debes seleccionar el jugador que sale y el jugador que entra.");
+    return;
+  }
+
+  if (!currentMatchDetails) return;
+
+  const currentSubs = currentMatchDetails.substitutions.map(s => ({
+    player_out_id: s.player_out_id,
+    player_in_id: s.player_in_id,
+    minute: s.minute
+  }));
+
+  currentSubs.push({ player_out_id, player_in_id, minute });
+
+  const payload = {
+    starters: currentMatchDetails.starters,
+    substitutes: currentMatchDetails.substitutes,
+    substitutions: currentSubs
+  };
+
+  try {
+    await fetch(`${API_BASE}/matches/${currentMatchId}/lineup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    await loadMatchTactics(currentMatchId);
+    await renderLivePreviews();
+  } catch (err) {
+    console.error("Error adding substitution:", err);
+  }
+}
+
+async function deleteSubstitutionEvent(index) {
+  if (!currentMatchDetails) return;
+  const currentSubs = currentMatchDetails.substitutions.map(s => ({
+    player_out_id: s.player_out_id,
+    player_in_id: s.player_in_id,
+    minute: s.minute
+  }));
+
+  currentSubs.splice(index, 1);
+
+  const payload = {
+    starters: currentMatchDetails.starters,
+    substitutes: currentMatchDetails.substitutes,
+    substitutions: currentSubs
+  };
+
+  try {
+    await fetch(`${API_BASE}/matches/${currentMatchId}/lineup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    await loadMatchTactics(currentMatchId);
+    await renderLivePreviews();
+  } catch (err) {
+    console.error("Error deleting substitution:", err);
+  }
+}
+
+async function addCardToPlayer() {
+  const playerId = document.getElementById("cardPlayerSelect").value;
+  const cardType = document.getElementById("cardTypeSelect").value;
+  const minute = parseInt(document.getElementById("cardMinuteInput").value) || 35;
+
+  if (!playerId || !currentMatchDetails) return;
+
+  const starters = currentMatchDetails.starters.map(s => {
+    if (s.player_id === playerId) {
+      return {
+        ...s,
+        has_yellow_card: cardType === "YELLOW" || cardType === "DOUBLE_YELLOW",
+        has_red_card: cardType === "RED" || cardType === "DOUBLE_YELLOW",
+        card_minute: minute,
+        card_type: cardType
+      };
+    }
+    return s;
+  });
+
+  const substitutes = currentMatchDetails.substitutes.map(s => {
+    if (s.player_id === playerId) {
+      return {
+        ...s,
+        has_yellow_card: cardType === "YELLOW" || cardType === "DOUBLE_YELLOW",
+        has_red_card: cardType === "RED" || cardType === "DOUBLE_YELLOW",
+        card_minute: minute,
+        card_type: cardType
+      };
+    }
+    return s;
+  });
+
+  const payload = {
+    starters: starters,
+    substitutes: substitutes,
+    substitutions: currentMatchDetails.substitutions
+  };
+
+  try {
+    await fetch(`${API_BASE}/matches/${currentMatchId}/lineup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    await loadMatchTactics(currentMatchId);
+    await renderLivePreviews();
+  } catch (err) {
+    console.error("Error adding card:", err);
+  }
+}
+
+async function removeCardFromPlayer(playerId) {
+  if (!currentMatchDetails) return;
+
+  const starters = currentMatchDetails.starters.map(s => {
+    if (s.player_id === playerId) {
+      return { ...s, has_yellow_card: false, has_red_card: false, card_minute: null, card_type: null };
+    }
+    return s;
+  });
+
+  const substitutes = currentMatchDetails.substitutes.map(s => {
+    if (s.player_id === playerId) {
+      return { ...s, has_yellow_card: false, has_red_card: false, card_minute: null, card_type: null };
+    }
+    return s;
+  });
+
+  const payload = {
+    starters: starters,
+    substitutes: substitutes,
+    substitutions: currentMatchDetails.substitutions
+  };
+
+  try {
+    await fetch(`${API_BASE}/matches/${currentMatchId}/lineup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    await loadMatchTactics(currentMatchId);
+    await renderLivePreviews();
+  } catch (err) {
+    console.error("Error removing card:", err);
+  }
+}
+
+// Drag & Drop Pitch Engine
+let isDraggingPitchBox = false;
+let currentDraggedEl = null;
+let currentPitchCanvas = null;
+let dragStartX = 0;
+let dragStartY = 0;
+let initialElemLeft = 0;
+let initialElemTop = 0;
+
+function attachPitchDragListeners(pitchCanvasEl, isSquadPitch = false) {
+  const playerBoxes = pitchCanvasEl.querySelectorAll(".pitch-player-box");
+  
+  playerBoxes.forEach(box => {
+    box.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      isDraggingPitchBox = true;
+      currentDraggedEl = box;
+      currentPitchCanvas = pitchCanvasEl;
+      
+      try { box.setPointerCapture(e.pointerId); } catch(err) {}
+      box.classList.add("dragging");
+      
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      
+      const styleLeft = parseFloat(box.style.left) || 50;
+      const styleTop = parseFloat(box.style.top) || 50;
+      initialElemLeft = styleLeft;
+      initialElemTop = styleTop;
+    });
+
+    box.addEventListener("pointermove", (e) => {
+      if (!isDraggingPitchBox || currentDraggedEl !== box) return;
+      e.preventDefault();
+
+      const rect = pitchCanvasEl.getBoundingClientRect();
+      const deltaX = e.clientX - dragStartX;
+      const deltaY = e.clientY - dragStartY;
+
+      const deltaXPct = (deltaX / rect.width) * 100;
+      const deltaYPct = (deltaY / rect.height) * 100;
+
+      let leftPct = initialElemLeft + deltaXPct;
+      let topPct = initialElemTop + deltaYPct;
+
+      leftPct = Math.max(5, Math.min(95, leftPct));
+      topPct = Math.max(5, Math.min(95, topPct));
+
+      box.style.left = `${leftPct.toFixed(2)}%`;
+      box.style.top = `${topPct.toFixed(2)}%`;
+    });
+
+    const finishDrag = async (e) => {
+      if (!isDraggingPitchBox || currentDraggedEl !== box) return;
+      isDraggingPitchBox = false;
+      box.classList.remove("dragging");
+      try { box.releasePointerCapture(e.pointerId); } catch(err) {}
+
+      const rect = pitchCanvasEl.getBoundingClientRect();
+      let leftPct = ((e.clientX - rect.left) / rect.width) * 100;
+      let topPct = ((e.clientY - rect.top) / rect.height) * 100;
+      leftPct = Math.max(5, Math.min(95, leftPct));
+      topPct = Math.max(5, Math.min(95, topPct));
+
+      const pitch_u = parseFloat((leftPct / 100.0).toFixed(3));
+      const pitch_v = parseFloat((topPct / 100.0).toFixed(3));
+
+      const playerId = box.getAttribute("data-player-id");
+      const playerName = box.getAttribute("data-player-name") || "Jugador";
+
+      if (isSquadPitch && playerId) {
+        await savePlayerPitchPosition(playerId, pitch_u, pitch_v, playerName);
+      } else if (!isSquadPitch && playerId && currentMatchId) {
+        await saveMatchStarterPosition(currentMatchId, playerId, pitch_u, pitch_v, playerName);
+      }
+
+      currentDraggedEl = null;
+      currentPitchCanvas = null;
+    };
+
+    box.addEventListener("pointerup", finishDrag);
+    box.addEventListener("pointercancel", finishDrag);
+  });
+}
+
+function showPitchToast(pitchContainer, message) {
+  const existing = pitchContainer.querySelectorAll(".pitch-toast");
+  existing.forEach(t => t.remove());
+
+  const toast = document.createElement("div");
+  toast.className = "pitch-toast";
+  toast.innerText = message;
+  pitchContainer.appendChild(toast);
+  setTimeout(() => toast.remove(), 2100);
+}
+
+async function savePlayerPitchPosition(playerId, pitch_u, pitch_v, playerName) {
+  try {
+    const res = await fetch(`${API_BASE}/players/${playerId}/pitch_position`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pitch_x: pitch_u, pitch_y: pitch_v })
+    });
+    if (res.ok) {
+      const container = document.getElementById("prevPitchBContainer");
+      if (container) showPitchToast(container, `✓ Posición guardada: ${playerName}`);
+    }
+  } catch (err) {
+    console.error("Error saving position:", err);
+  }
+}
+
+async function saveMatchStarterPosition(matchId, playerId, grid_x, grid_y, playerName) {
+  try {
+    const res = await fetch(`${API_BASE}/matches/${matchId}/lineup_positions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([{ player_id: playerId, grid_x: grid_x, grid_y: grid_y }])
+    });
+    if (res.ok) {
+      const container = document.getElementById("prevPitchCContainer");
+      if (container) showPitchToast(container, `✓ Alineación guardada: ${playerName}`);
+    }
+  } catch (err) {
+    console.error("Error saving lineup position:", err);
+  }
+}
+
+async function resetTacticalPitchPositions() {
+  if (!confirm("¿Deseas restablecer las posiciones a la formación táctica original?")) return;
+  try {
+    const res = await fetch(`${API_BASE}/teams/${currentTeamId}/reset_pitch_positions`, {
+      method: "POST"
+    });
+    if (res.ok) {
+      const container = document.getElementById("prevPitchBContainer");
+      if (container) showPitchToast(container, "⚽ Formación táctica restablecida");
+      await renderLivePreviews();
+    }
+  } catch (err) {
+    alert("Error al restablecer posiciones");
+  }
+}
+
+// Live Slide Previews
+async function renderLivePreviews() {
+  try {
+    // Slide A Preview
+    const resA = await fetch(`${API_BASE}/preview/demographic/${currentTeamId}`);
+    const dataA = await resA.json();
+    document.getElementById("prevTitleA").innerText = `${dataA.team.name} SQUAD DEMOGRAPHIC`;
+    document.getElementById("prevKpiA").innerText = `TOTAL PLAYERS: ${dataA.players.length}`;
+    document.getElementById("prevFooterA").innerText = `${dataA.team.club_name} | ${dataA.team.season} | MEDICAL & SPORTS SCIENCE DEPARTMENT`;
+    renderDemographicPreviewTable(dataA.players);
+
+    // Slide B Preview
+    const resB = await fetch(`${API_BASE}/preview/squad-pitch/${currentTeamId}`);
+    const dataB = await resB.json();
+    document.getElementById("prevTitleB").innerText = `${dataB.team.name}`;
+    document.getElementById("prevKpiB").innerText = `NUMERO DE JUGADORES: ${dataB.boxes.length} JUGADORES`;
+    renderSquadPitchPreview(dataB.boxes);
+
+    // Slide C Preview
+    if (currentMatchId) {
+      const resC = await fetch(`${API_BASE}/preview/match/${currentMatchId}`);
+      const dataC = await resC.json();
+      document.getElementById("prevTitleC").innerText = `${dataC.match.opponent} v DEPORTIVO (${dataC.match.result_type} ${dataC.match.home_goals}-${dataC.match.away_goals})`;
+      document.getElementById("prevKpiC").innerText = `TOTAL NUMBER OF SUBSTITUTIONS: ${dataC.substitutions.length}`;
+      renderMatchPreview(dataC);
+    }
+  } catch (err) {
+    console.error("Error loading live previews:", err);
+  }
+}
+
+function renderDemographicPreviewTable(players) {
+  const table = document.getElementById("prevDemographicTable");
+  if (!table) return;
+  const categories = ["Porteros", "Centrales", "Laterales", "Mediocentros", "Int/Extremos", "Delanteros"];
+  const bands = [
+    { label: "30+", test: a => a >= 30, color: "#1e3a8a" },
+    { label: "26-29", test: a => a >= 26 && a <= 29, color: "#1d4ed8" },
+    { label: "22-25", test: a => a >= 22 && a <= 25, color: "#2563eb" },
+    { label: "U21", test: a => a <= 21, color: "#0284c7" }
+  ];
+
+  let html = `
+    <thead>
+      <tr>
+        <th style="width: 90px; text-align: center;">Edad</th>
+        ${categories.map(c => `<th style="text-align: center;">${c}</th>`).join("")}
+        <th style="width: 80px; text-align: center; background: #002060;">TOTAL</th>
+      </tr>
+    </thead>
+    <tbody>
+  `;
+
+  bands.forEach(b => {
+    const bandPlayers = players.filter(p => b.test(p.age));
+    html += `<tr>
+      <td style="font-weight: 800; text-align: center; color: white; background: ${b.color}; font-size: 0.88rem; vertical-align: middle; border-radius: 4px;">${b.label}</td>`;
+    categories.forEach(cat => {
+      const matched = bandPlayers.filter(p => p.derived_category === cat);
+      html += `<td style="vertical-align: middle; padding: 6px 8px;">`;
+      if (matched.length === 0) {
+        html += `<span style="color: #cbd5e1; font-size: 0.75rem; font-style: italic;">-</span>`;
+      } else {
+        html += `<div style="display: flex; flex-direction: column; gap: 4px; width: 100%;">`;
+        matched.forEach(p => {
+          html += `<div style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 4px 8px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.82rem; box-shadow: 0 1px 2px rgba(0,0,0,0.04);"><span style="font-weight: 600; color: #0f172a;">${p.name}</span><span style="font-weight: 700; color: #475569; font-size: 0.76rem;">(${p.age})</span></div>`;
+        });
+        html += `</div>`;
+      }
+      html += `</td>`;
+    });
+    html += `<td style="text-align: center; font-weight: 700; color: #002060; vertical-align: middle; background: #f1f5f9;">${bandPlayers.length}</td>`;
+    html += `</tr>`;
+  });
+
+  // Calculate totals and average ages for each category
+  const catTotals = [];
+  const catAvgs = [];
+
+  categories.forEach(cat => {
+    const catP = players.filter(p => p.derived_category === cat);
+    const count = catP.length;
+    catTotals.push(count);
+    if (count > 0) {
+      const avg = catP.reduce((sum, p) => sum + p.age, 0) / count;
+      catAvgs.push(avg.toFixed(1).replace(".", ","));
+    } else {
+      catAvgs.push("0,0");
+    }
+  });
+
+  const totalPlayersCount = players.length;
+  const overallAvgAge = totalPlayersCount > 0 
+    ? (players.reduce((sum, p) => sum + p.age, 0) / totalPlayersCount).toFixed(1).replace(".", ",")
+    : "0,0";
+
+  // Add TOTALS Row
+  html += `
+    <tr style="border-top: 2px solid #002060;">
+      <td style="font-weight: 800; text-align: center; color: white; background: #002060; font-size: 0.85rem; padding: 8px 4px;">TOTALS</td>
+      ${catTotals.map(t => `<td style="text-align: center; font-weight: 800; color: #002060; background: #d9ead3; font-size: 0.95rem; padding: 8px 4px;">${t}</td>`).join("")}
+      <td style="text-align: center; font-weight: 800; color: white; background: #002060; font-size: 0.95rem; padding: 8px 4px;">${totalPlayersCount}</td>
+    </tr>
+  `;
+
+  // Add MEDIA EDAD Row
+  html += `
+    <tr>
+      <td style="font-weight: 800; text-align: center; color: white; background: #002060; font-size: 0.82rem; padding: 8px 4px;">MEDIA EDAD</td>
+      ${catAvgs.map(a => `<td style="text-align: center; font-weight: 800; color: #002060; background: #f8fafc; font-size: 0.9rem; padding: 8px 4px;">${a}</td>`).join("")}
+      <td style="text-align: center; font-weight: 800; color: white; background: #002060; font-size: 0.9rem; padding: 8px 4px;">${overallAvgAge}</td>
+    </tr>
+  `;
+
+  html += `</tbody>`;
+  table.innerHTML = html;
+}
+
+function renderSquadPitchPreview(boxes) {
+  const container = document.getElementById("prevPitchBContainer");
+  if (!container) return;
+  container.innerHTML = `
+    <div style="display: flex; justify-content: center; width: 100%; padding: 10px 0;">
+      <div class="pitch-svg-canvas wide-slide-pitch" id="squadPitchCanvas">
+        ${boxes.map(b => {
+          const pObj = currentPlayers.find(x => x.id === b.id);
+          const photoContent = (pObj && pObj.photo_url) 
+            ? `<img src="${pObj.photo_url}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`
+            : `<span style="font-size: 1rem; color: white;">👤</span>`;
+          const leftPct = (b.u * 100).toFixed(2);
+          const topPct = (b.v * 100).toFixed(2);
+          return `
+            <div class="pitch-player-box squad-player-box" data-player-id="${b.id}" data-player-name="${b.label}" style="left: ${leftPct}%; top: ${topPct}%;" title="Haz clic para ver Pasaporte del Jugador (o arrastra para reubicar)">
+              <div class="player-photo-circle" style="overflow: hidden; display: flex; align-items: center; justify-content: center; background: #002060; cursor: pointer;" onclick="openPlayerCardModal('${b.id}')">
+                ${photoContent}
+              </div>
+              <div class="player-name-pill" style="cursor: pointer;" onclick="openPlayerCardModal('${b.id}')">${b.label}</div>
+            </div>`;
+        }).join("")}
+      </div>
+    </div>
+  `;
+
+  const canvas = document.getElementById("squadPitchCanvas");
+  if (canvas) attachPitchDragListeners(canvas, true);
+}
+
+function renderMatchPreview(data) {
+  // 1. Center Pitch
+  const pitchContainer = document.getElementById("prevPitchCContainer");
+  if (!pitchContainer) return;
+  const boxes = data.starter_boxes;
+  pitchContainer.innerHTML = `
+    <div style="display: flex; justify-content: center; width: 100%;">
+      <div class="pitch-svg-canvas" id="matchPitchCanvas">
+        ${boxes.map(b => {
+          let badgesHtml = "";
+          if (currentMatchDetails) {
+              const st = currentMatchDetails.starters.find(s => s.player_id === b.id);
+              if (st) {
+                  const subbedOutMap = {};
+                  currentMatchDetails.substitutions.forEach(se => subbedOutMap[se.player_out_id] = se.minute);
+                  const subMin = subbedOutMap[st.player_id] || st.sub_out_minute;
+                  
+                  if (subMin) {
+                    badgesHtml += `<div class="event-badge sub-out-badge">${subMin}'</div>`;
+                  }
+                  if (st.has_red_card) {
+                    badgesHtml += `<div class="yellow-card-badge" style="background-color: #ef4444; border-color: #b91c1c; left: -5px; right: auto;"></div>`;
+                  } else if (st.has_yellow_card) {
+                    badgesHtml += `<div class="yellow-card-badge" style="left: -5px; right: auto;"></div>`;
+                  }
+                  
+                  if (st.goals && st.goals > 0) {
+                    badgesHtml += `<div class="event-badge goal-badge">⚽${st.goals > 1 ? ' '+st.goals : ''}</div>`;
+                  }
+              }
+          }
+          
+          const pObj = (data.players_map && data.players_map[b.id]) || currentPlayers.find(x => x.id === b.id);
+          const photoContent = (pObj && pObj.photo_url) 
+            ? `<img src="${pObj.photo_url}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`
+            : `<span style="font-size: 1rem; color: white;">👤</span>`;
+
+          const leftPct = (b.u * 100).toFixed(1);
+          const topPct = (b.v * 100).toFixed(1);
+          return `
+            <div class="pitch-player-box" data-player-id="${b.id}" data-player-name="${b.label}" style="left: ${leftPct}%; top: ${topPct}%;" title="Haz clic para ver Pasaporte del Jugador (o arrastra para reubicar)">
+              <div class="player-photo-circle" style="overflow: hidden; display: flex; align-items: center; justify-content: center; background: #002060; position: relative; cursor: pointer;" onclick="openPlayerCardModal('${b.id}')">
+                ${photoContent}
+                ${badgesHtml}
+              </div>
+              <div class="player-name-pill" style="cursor: pointer;" onclick="openPlayerCardModal('${b.id}')">${b.label}</div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+
+  const matchCanvas = document.getElementById("matchPitchCanvas");
+  if (matchCanvas) attachPitchDragListeners(matchCanvas, false);
+
+  // 2. Left Panel: Substitutes
+  const subContainer = document.getElementById("prevSubListC");
+  if (subContainer) {
+    const subbedInMap = {};
+    data.substitutions.forEach(s => subbedInMap[s.player_in_id] = s.minute);
+
+    let subHtml = `
+      <div style="font-weight: 800; color: var(--navy-primary); font-size: 0.9rem; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid var(--gold-accent); display: flex; justify-content: space-between; align-items: center;">
+        <span>CONVOCADOS</span>
+        <span class="badge" style="background: var(--navy-primary); color: white; font-size: 0.75rem; font-weight: 700;">${data.substitutes.length}</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+    `;
+    data.substitutes.forEach(sub => {
+      const p = data.players_map[sub.player_id] || { name: 'Suplente' };
+      const min = subbedInMap[sub.player_id];
+      if (min) {
+        subHtml += `
+          <div class="sub-list-item is-subbed-in">
+            <span style="color: #059669; font-weight: 800;">▲ ${p.name}</span>
+            <span class="sub-min-tag">${min}’</span>
+          </div>`;
+      } else {
+        subHtml += `
+          <div class="sub-list-item">
+            <span>• ${p.name}</span>
+          </div>`;
+      }
+    });
+    subHtml += `</div>`;
+    subContainer.innerHTML = subHtml;
+  }
+
+  // 3. Right Panel: Substitutions Log & Cadence
+  const logContainer = document.getElementById("prevSubLogC");
+  if (logContainer) {
+    const m = data.match;
+    let logHtml = `
+      <div class="match-info-card-header">
+        <div style="font-weight: 800; color: var(--navy-primary); font-size: 0.85rem; margin-bottom: 2px;">⏱️ ${m.playing_time || '90 Minutes'}</div>
+        <div style="font-size: 0.75rem; font-weight: 600; color: #475569;">${m.substitute_cadence || '1 Cadence: 1 x 4'}</div>
+        <div style="font-size: 0.78rem; font-weight: 700; color: var(--navy-primary); margin-top: 4px;">Cambios Realizados: ${data.substitutions.length}</div>
+      </div>
+      <div style="font-weight: 800; color: var(--navy-primary); font-size: 0.85rem; margin-top: 10px; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 2px solid var(--gold-accent);">
+        HISTORIAL DE CAMBIOS
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; max-height: 480px; overflow-y: auto;">
+    `;
+
+    if (data.substitutions.length === 0) {
+      logHtml += `<div style="color: #94a3b8; font-style: italic; font-size: 0.8rem; text-align: center; padding: 12px 0;">Sin cambios realizados</div>`;
+    } else {
+      data.substitutions.forEach((ev, idx) => {
+        const pOut = data.players_map[ev.player_out_id] || { name: 'Sale' };
+        const pIn = data.players_map[ev.player_in_id] || { name: 'Entra' };
+        logHtml += `
+          <div class="sub-log-timeline-item">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+              <span style="font-weight: 800; color: var(--navy-primary); font-size: 0.78rem;">Cambio #${idx + 1}</span>
+              <span class="sub-min-tag" style="background: var(--navy-primary); color: white;">${ev.minute}’</span>
+            </div>
+            <div style="font-size: 0.76rem; display: flex; flex-direction: column; gap: 2px;">
+              <span style="color: #059669; font-weight: 700;">▲ Entra: ${pIn.name}</span>
+              <span style="color: #dc2626; font-weight: 700;">▼ Sale: ${pOut.name}</span>
+            </div>
+          </div>
+        `;
+      });
+    }
+    logHtml += `</div>`;
+    logContainer.innerHTML = logHtml;
+  }
+}
+
+async function importMatchFromUrl() {
+  if (!currentMatchId) {
+    alert("Por favor, selecciona o crea un partido primero.");
+    return;
+  }
+  
+  const urlInput = document.getElementById("importUrlInput");
+  const url = urlInput.value.trim();
+  if (!url) {
+    alert("Por favor, pega el enlace de BeSoccer primero.");
+    return;
+  }
+
+  const btn = document.getElementById("importUrlBtn");
+  const originalText = btn.innerHTML;
+  btn.innerHTML = `⏳ Importando...`;
+  btn.disabled = true;
+
+  try {
+    const doImport = async (createUnknowns = false, ignoreUnknowns = false) => {
+      return await fetch(`/api/matches/${currentMatchId}/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url, create_unknowns: createUnknowns, ignore_unknowns: ignoreUnknowns })
+      });
+    };
+
+    let response = await doImport();
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.status === "pending_creation") {
+        const msg = "Se detectaron jugadores que no están en el equipo:\n\n- " + data.unknown_players.join("\n- ") + "\n\n¿Deseas crearlos y añadirlos al equipo?\n(Aceptar = Sí, Cancelar = Ignorarlos)";
+        if (confirm(msg)) {
+          response = await doImport(true, false);
+        } else {
+          response = await doImport(false, true);
+        }
+        
+        if (!response.ok) {
+          const err = await response.json();
+          alert("Error al importar: " + (err.detail || "URL inválida"));
+          return;
+        }
+      }
+      
+      alert("¡Partido importado con éxito! Recargando alineaciones...");
+      await loadMatchTactics(currentMatchId);
+      urlInput.value = "";
+    } else {
+      const err = await response.json();
+      alert("Error al importar: " + (err.detail || "URL inválida"));
+    }
+  } catch (err) {
+    console.error("Import error:", err);
+    alert("Error de conexión al importar.");
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  }
+}
+
+// Export checklist & action
+function renderExportMatchesChecklist() {
+  const container = document.getElementById("exportMatchesChecklist");
+  if (!container) return;
+  container.innerHTML = currentMatches.map(m => `
+    <div style="margin-bottom: 6px;">
+      <label><input type="checkbox" value="${m.id}" checked> ${m.opponent} (${m.result_type} ${m.home_goals}-${m.away_goals})</label>
+    </div>
+  `).join("");
+}
+
+async function triggerExport(format, allTeams = false) {
+  const selectedMatchIds = Array.from(document.querySelectorAll("#exportMatchesChecklist input:checked")).map(cb => cb.value);
+  
+  const payload = {
+    team_id: currentTeamId,
+    match_ids: selectedMatchIds,
+    all_teams: allTeams
+  };
+
+  const endpoint = format === 'pdf' ? '/export/pdf' : '/export/pptx';
+  const mimeType = format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  const defaultFilename = allTeams ? `Full_Club_Analysis_Player.${format}` : `${currentTeamId}_Analysis_Player.${format}`;
+
+  try {
+    const res = await fetch(`${API_BASE}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) throw new Error("Export failed");
+
+    let filename = defaultFilename;
+    const disposition = res.headers.get("Content-Disposition");
+    if (disposition && disposition.includes("filename=")) {
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      if (match && match[1]) filename = match[1];
+    }
+
+    const rawBlob = await res.blob();
+    const typedBlob = new Blob([rawBlob], { type: mimeType });
+    const url = window.URL.createObjectURL(typedBlob);
+    
+    const a = document.createElement("a");
+    a.style.display = "none";
+    a.href = url;
+    a.setAttribute("download", filename);
+    document.body.appendChild(a);
+    a.click();
+    
+    setTimeout(() => {
+      if (a.parentNode) document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    }, 500);
+  } catch (err) {
+    console.error("Export error, falling back to direct GET URL:", err);
+    const getUrl = `${API_BASE}${endpoint}?team_id=${encodeURIComponent(currentTeamId)}&all_teams=${allTeams ? 'true' : 'false'}`;
+    window.location.href = getUrl;
+  }
+}

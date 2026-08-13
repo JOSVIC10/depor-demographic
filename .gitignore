@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+besoccer_dump.html
+besoccer_events_dump.html
+all_events_dump.txt
+item_list_dump.txt
+debug_scraper_output.json
