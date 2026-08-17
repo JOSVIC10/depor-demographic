@@ -136,9 +136,11 @@ def scrape_besoccer_match(url: str):
         if len(data["name"]) > 2 and len(data["name"]) < 40:
             valid_starters.append(data)
             
-    with open("c:/Users/Jose Vicente/Desktop/Depor - Demographic/debug_scraper_output.json", "w", encoding="utf-8") as f:
-        json.dump({"starters_nodes_len": len(starters_nodes), "valid_starters_len": len(valid_starters), "debug_names": debug_starters}, f, indent=2)
-            
+    try:
+        with open("c:/Users/Jose Vicente/Desktop/Depor - Demographic/debug_scraper_output.json", "w", encoding="utf-8") as f:
+            json.dump({"starters_nodes_len": len(starters_nodes), "valid_starters_len": len(valid_starters), "debug_names": debug_starters}, f, indent=2)
+    except Exception:
+        pass
     for i, data in enumerate(valid_starters):
         if i < 11:
             home_starters.append(data)

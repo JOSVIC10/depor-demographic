@@ -466,41 +466,16 @@ def debug_slides():
                 "images_count": len(media_files)
             })
 
-@app.get("/api/admin/git-push")
-def git_push():
-    import subprocess
-    cwd = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    out = []
-    
-    def run_git(cmd):
-        res = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, shell=True)
-        out.append(f"$ {' '.join(cmd)}\nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}\nCode: {res.returncode}")
 
-    run_git(["git", "init"])
-    run_git(["git", "add", "."])
-    run_git(["git", "commit", "-m", "Auto deploy Dockerfile and database"])
-@app.get("/api/admin/git-commit")
-def git_commit():
-    import subprocess
-    cwd = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    out = []
-    
-    res1 = subprocess.run(["git", "add", "."], cwd=cwd, capture_output=True, text=True, shell=True)
-    out.append(f"ADD: {res1.stdout} {res1.stderr}")
-    
-    res2 = subprocess.run(["git", "commit", "-m", "Add Dockerfile, backend models, database, and photos"], cwd=cwd, capture_output=True, text=True, shell=True)
-    out.append(f"COMMIT: {res2.stdout} {res2.stderr}")
-
-    return {"success": True, "logs": "\n---\n".join(out)}
-
-@app.post("/api/players/{player_id}/pitch_position")
-def update_player_pitch_position(player_id: str, payload: Dict):
     pitch_x = float(payload.get("pitch_x", 0.5))
     pitch_y = float(payload.get("pitch_y", 0.5))
     db.update_player_pitch_position(player_id, pitch_x, pitch_y)
     return {"success": True, "player_id": player_id, "pitch_x": pitch_x, "pitch_y": pitch_y}
 
 @app.post("/api/teams/{team_id}/pitch_positions")
+
+
+
 def update_team_pitch_positions(team_id: str, payload: List[Dict]):
     db.update_team_pitch_positions(payload)
     return {"success": True, "count": len(payload)}
@@ -762,9 +737,35 @@ def import_match_from_url(match_id: str, req: ImportMatchRequest):
 
     import uuid
     
+    unknown_players_found = []
+    
     def get_or_handle_player(name: str):
         if not name: return None
-        return find_player_id(name)
+        pid = find_player_id(name)
+        if pid: return pid
+        
+        if req.create_unknowns:
+            new_id = f"p_{team_id}_{uuid.uuid4().hex[:8]}"
+            db.create_player(name=name, birthdate="", detailed_position="Desconocida", team_id=team_id, player_id=new_id)
+            p_obj = db.get_player(new_id)
+            if p_obj: team_players.append(p_obj)
+            return new_id
+            
+        if not req.ignore_unknowns:
+            if name not in unknown_players_found:
+                unknown_players_found.append(name)
+        return None
+
+    # Pre-pass to find unknown players
+    if not req.create_unknowns and not req.ignore_unknowns:
+        for s_data in scraped_starters + scraped_subs:
+            name = s_data if isinstance(s_data, str) else s_data.get("name", "")
+            if name and not find_player_id(name):
+                if name not in unknown_players_found:
+                    unknown_players_found.append(name)
+        
+        if unknown_players_found:
+            return {"status": "pending_creation", "unknown_players": unknown_players_found}
 
     slots = [
         {"role": "GK", "grid_x": 0.50, "grid_y": 0.89},
