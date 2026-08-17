@@ -977,7 +977,7 @@ function renderTacticalPitch() {
           
         return `
           <div class="pitch-player-box" data-player-id="${st.player_id}" data-player-name="${p.name}" style="left: ${leftPct}%; top: ${topPct}%;" title="Arrastra para mover en el campo">
-            <div class="player-photo-circle" style="overflow: hidden; display: flex; align-items: center; justify-content: center; background: #002060; position: relative;">
+            <div class="player-photo-circle">
               ${photoContent}
               ${badgesHtml}
             </div>
@@ -1690,7 +1690,7 @@ function renderSquadPitchPreview(boxes) {
           const topPct = (b.v * 100).toFixed(2);
           return `
             <div class="pitch-player-box squad-player-box" data-player-id="${b.id}" data-player-name="${b.label}" style="left: ${leftPct}%; top: ${topPct}%;" title="Haz clic para ver Pasaporte del Jugador (o arrastra para reubicar)">
-              <div class="player-photo-circle" style="overflow: hidden; display: flex; align-items: center; justify-content: center; background: #002060; cursor: pointer;" onclick="openPlayerCardModal('${b.id}')">
+              <div class="player-photo-circle" style="cursor: pointer;" onclick="openPlayerCardModal('${b.id}')">
                 ${photoContent}
               </div>
               <div class="player-name-pill" style="cursor: pointer;" onclick="openPlayerCardModal('${b.id}')">${b.label}</div>
@@ -1745,7 +1745,7 @@ function renderMatchPreview(data) {
           const topPct = (b.v * 100).toFixed(1);
           return `
             <div class="pitch-player-box" data-player-id="${b.id}" data-player-name="${b.label}" style="left: ${leftPct}%; top: ${topPct}%;" title="Haz clic para ver Pasaporte del Jugador (o arrastra para reubicar)">
-              <div class="player-photo-circle" style="overflow: hidden; display: flex; align-items: center; justify-content: center; background: #002060; position: relative; cursor: pointer;" onclick="openPlayerCardModal('${b.id}')">
+              <div class="player-photo-circle" style="cursor: pointer;" onclick="openPlayerCardModal('${b.id}')">
                 ${photoContent}
                 ${badgesHtml}
               </div>
