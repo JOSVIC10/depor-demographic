@@ -72,13 +72,15 @@ def scrape_besoccer_match(url: str):
     import json
     def extract_player_data(node):
         name = ""
+        image = None
         # 1. Try to extract name from BeSoccer's JSON-LD script (new format)
         script_tag = node.select_one('script[type="application/ld+json"]')
         if script_tag and script_tag.string:
             try:
                 js_data = json.loads(script_tag.string)
-                if isinstance(js_data, dict) and "name" in js_data:
-                    name = js_data["name"]
+                if isinstance(js_data, dict):
+                    if "name" in js_data: name = js_data["name"]
+                    if "image" in js_data: image = js_data["image"]
             except:
                 pass
                 
@@ -92,8 +94,14 @@ def scrape_besoccer_match(url: str):
         if not name:
             text = node.get_text(separator=" ", strip=True)
             name = text.split(" ")[-1] if len(text) > 40 else text
+
+        if not image:
+            img_tag = node.select_one('img')
+            if img_tag and img_tag.get('src'):
+                image = img_tag['src']
+                if 'data:image' in image: image = None
             
-        data = {"name": name.strip(), "has_yellow_card": False, "has_red_card": False, "sub_out_minute": None, "sub_in_minute": None, "goals": 0}
+        data = {"name": name.strip(), "image": image, "has_yellow_card": False, "has_red_card": False, "sub_out_minute": None, "sub_in_minute": None, "goals": 0}
         
         # Check for icons indicating goals
         for icon in node.select('.icon-gol, .goal-icon, .gol'):

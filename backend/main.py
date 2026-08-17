@@ -739,7 +739,8 @@ def import_match_from_url(match_id: str, req: ImportMatchRequest):
     
     unknown_players_found = []
     
-    def get_or_handle_player(name: str):
+    def get_or_handle_player(s_data: dict):
+        name = s_data.get("name", "")
         if not name: return None
         pid = find_player_id(name)
         if pid: return pid
@@ -747,6 +748,9 @@ def import_match_from_url(match_id: str, req: ImportMatchRequest):
         if req.create_unknowns:
             new_id = f"p_{team_id}_{uuid.uuid4().hex[:8]}"
             db.create_player(name=name, birthdate="", detailed_position="Desconocida", team_id=team_id, player_id=new_id)
+            image_url = s_data.get("image")
+            if image_url:
+                db.update_player_photo(new_id, image_url)
             p_obj = db.get_player(new_id)
             if p_obj: team_players.append(p_obj)
             return new_id
@@ -759,7 +763,8 @@ def import_match_from_url(match_id: str, req: ImportMatchRequest):
     # Pre-pass to find unknown players
     if not req.create_unknowns and not req.ignore_unknowns:
         for s_data in scraped_starters + scraped_subs:
-            name = s_data if isinstance(s_data, str) else s_data.get("name", "")
+            if isinstance(s_data, str): s_data = {"name": s_data}
+            name = s_data.get("name", "")
             if name and not find_player_id(name):
                 if name not in unknown_players_found:
                     unknown_players_found.append(name)
@@ -785,7 +790,7 @@ def import_match_from_url(match_id: str, req: ImportMatchRequest):
     
     for i, s_data in enumerate(scraped_starters[:11]):
         if isinstance(s_data, str): s_data = {"name": s_data}
-        p_id = get_or_handle_player(s_data["name"])
+        p_id = get_or_handle_player(s_data)
         if not p_id: continue
         
         slot = slots[i] if i < len(slots) else {"role": "POS", "grid_x": 0.5, "grid_y": 0.5}
@@ -805,7 +810,7 @@ def import_match_from_url(match_id: str, req: ImportMatchRequest):
     new_subs = []
     for s_data in scraped_subs:
         if isinstance(s_data, str): s_data = {"name": s_data}
-        p_id = get_or_handle_player(s_data["name"])
+        p_id = get_or_handle_player(s_data)
         if not p_id: continue
         
         sub = {
