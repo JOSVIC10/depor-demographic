@@ -96,6 +96,8 @@ class PlayerBase(BaseModel):
     red_cards: Optional[int] = 0
     goals: Optional[int] = 0
     seasons_data: Optional[str] = None
+    is_injured: Optional[bool] = False
+    extra_pitch_team_id: Optional[str] = None
 
 class PlayerCreate(PlayerBase):
     pass

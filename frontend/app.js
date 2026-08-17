@@ -106,6 +106,36 @@ function renderPlayersTable() {
       </tr>
     `;
   }).join("");
+  applyPlayersFilter();
+}
+
+function applyPlayersFilter() {
+  const filterName = (document.getElementById("filterName")?.value || "").toLowerCase();
+  const filterAge = (document.getElementById("filterAge")?.value || "").toLowerCase();
+  const filterPos = (document.getElementById("filterPos")?.value || "").toLowerCase();
+  const filterCat = (document.getElementById("filterCat")?.value || "").toLowerCase();
+
+  const tbody = document.getElementById("playersTableBody");
+  if (!tbody) return;
+  const trs = tbody.getElementsByTagName("tr");
+
+  for (let i = 0; i < trs.length; i++) {
+    const tdName = trs[i].getElementsByTagName("td")[1]?.textContent.toLowerCase() || "";
+    const tdAge = trs[i].getElementsByTagName("td")[3]?.textContent.toLowerCase() || "";
+    const tdPos = trs[i].getElementsByTagName("td")[4]?.textContent.toLowerCase() || "";
+    const tdCat = trs[i].getElementsByTagName("td")[5]?.textContent.toLowerCase() || "";
+
+    if (
+      tdName.includes(filterName) &&
+      tdAge.includes(filterAge) &&
+      tdPos.includes(filterPos) &&
+      tdCat.includes(filterCat)
+    ) {
+      trs[i].style.display = "";
+    } else {
+      trs[i].style.display = "none";
+    }
+  }
 }
 
 function openPlayerCardModal(playerId) {
@@ -1574,6 +1604,8 @@ async function renderLivePreviews() {
     document.getElementById("prevTitleB").innerText = `${dataB.team.name}`;
     document.getElementById("prevKpiB").innerText = `NUMERO DE JUGADORES: ${dataB.boxes.length} JUGADORES`;
     renderSquadPitchPreview(dataB.boxes);
+    renderInjuredPlayers(dataB.injured || []);
+    populateGlobalDropdowns();
 
     // Slide C Preview
     if (currentMatchId) {
@@ -1956,4 +1988,97 @@ async function triggerExport(format, allTeams = false) {
     const getUrl = `${API_BASE}${endpoint}?team_id=${encodeURIComponent(currentTeamId)}&all_teams=${allTeams ? 'true' : 'false'}`;
     window.location.href = getUrl;
   }
+}
+
+// Lesionados and Extra Pitch Players Logic
+let allGlobalPlayersCache = [];
+
+async function populateGlobalDropdowns() {
+  try {
+    const res = await fetch(`${API_BASE}/players/all`);
+    const allPlayers = await res.json();
+    allGlobalPlayersCache = allPlayers;
+    
+    const extraSelect = document.getElementById("extraPitchPlayerSelect");
+    const injuredSelect = document.getElementById("injuredPlayerSelect");
+    
+    if (extraSelect && injuredSelect) {
+      // Filter out players already on pitch or injured
+      const options = allPlayers.map(p => `<option value="${p.id}">${p.name} (${p.team_id})</option>`);
+      const defaultOption = `<option value="">-- Seleccionar --</option>`;
+      extraSelect.innerHTML = defaultOption + options.join("");
+      injuredSelect.innerHTML = defaultOption + options.join("");
+    }
+  } catch(e) {
+    console.error("Error fetching all players", e);
+  }
+}
+
+async function addExtraPlayerToPitch() {
+  const select = document.getElementById("extraPitchPlayerSelect");
+  const playerId = select.value;
+  if (!playerId) return;
+  
+  try {
+    const res = await fetch(`${API_BASE}/players/${playerId}/pitch-position`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pitch_x: 0.5, pitch_y: 0.5, extra_pitch_team_id: currentTeamId })
+    });
+    if (res.ok) {
+      await renderLivePreviews();
+    }
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+async function addInjuredPlayer() {
+  const select = document.getElementById("injuredPlayerSelect");
+  const playerId = select.value;
+  if (!playerId) return;
+  
+  try {
+    const res = await fetch(`${API_BASE}/players/${playerId}/injured`, {
+      method: "POST"
+    });
+    if (res.ok) {
+      await renderLivePreviews();
+    }
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+async function removeInjuredPlayer(playerId) {
+  try {
+    const res = await fetch(`${API_BASE}/players/${playerId}/injured`, {
+      method: "POST"
+    });
+    if (res.ok) {
+      await renderLivePreviews();
+    }
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+function renderInjuredPlayers(injuredPlayers) {
+  const list = document.getElementById("injuredPlayersList");
+  if (!list) return;
+  
+  if (injuredPlayers.length === 0) {
+    list.innerHTML = `<div style="color: rgba(255,255,255,0.5); font-size: 0.75rem; font-style: italic;">Sin lesionados registrados.</div>`;
+    return;
+  }
+  
+  list.innerHTML = injuredPlayers.map(p => `
+    <div style="background: rgba(220, 38, 38, 0.15); border: 1px solid rgba(220, 38, 38, 0.3); border-radius: 4px; padding: 4px 6px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span style="font-size: 0.8rem;">🏥</span>
+        <span style="color: white; font-size: 0.75rem; font-weight: 600;">${p.name}</span>
+      </div>
+      <button class="btn btn-secondary" style="padding: 1px 4px; font-size: 0.65rem; color: #fca5a5; background: transparent; border: none;" onclick="removeInjuredPlayer('${p.id}')" title="Recuperar jugador">✕</button>
+    </div>
+  `).join("");
 }

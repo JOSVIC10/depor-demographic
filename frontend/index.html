@@ -73,6 +73,24 @@
                 <th>Métricas (Min / Tit / Goles)</th>
                 <th style="text-align: right;">Acciones</th>
               </tr>
+              <tr style="background: #f1f5f9;">
+                <th></th>
+                <th><input type="text" id="filterName" class="form-control" style="font-size: 0.75rem; padding: 0.2rem 0.4rem; height: auto;" placeholder="Filtrar..." onkeyup="applyPlayersFilter()"></th>
+                <th></th>
+                <th><input type="text" id="filterAge" class="form-control" style="font-size: 0.75rem; padding: 0.2rem 0.4rem; height: auto;" placeholder="Filtrar..." onkeyup="applyPlayersFilter()"></th>
+                <th><input type="text" id="filterPos" class="form-control" style="font-size: 0.75rem; padding: 0.2rem 0.4rem; height: auto;" placeholder="Filtrar..." onkeyup="applyPlayersFilter()"></th>
+                <th>
+                  <select id="filterCat" class="form-control" style="font-size: 0.75rem; padding: 0.2rem 0.4rem; height: auto;" onchange="applyPlayersFilter()">
+                    <option value="">Todas</option>
+                    <option value="POR">POR</option>
+                    <option value="DEF">DEF</option>
+                    <option value="CEN">CEN</option>
+                    <option value="DEL">DEL</option>
+                  </select>
+                </th>
+                <th></th>
+                <th></th>
+              </tr>
             </thead>
             <tbody id="playersTableBody">
               <!-- Rendered via JS -->
@@ -260,7 +278,12 @@
             <p style="font-size: 0.8rem; font-weight: 700; color: var(--navy-primary);">Diapositiva B</p>
             <h2 class="slide-title-navy" id="prevTitleB">FULL SQUAD PITCH</h2>
           </div>
-          <div style="display: flex; gap: 0.75rem; align-items: center;">
+          <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; background: #f8fafc; padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;">
+              <span style="font-size: 0.75rem; font-weight: 600; color: var(--navy-primary);">Añadir:</span>
+              <select id="extraPitchPlayerSelect" class="form-control" style="font-size: 0.75rem; padding: 2px 4px; max-width: 150px;"></select>
+              <button class="btn btn-primary" style="padding: 2px 6px; font-size: 0.75rem;" onclick="addExtraPlayerToPitch()">➕</button>
+            </div>
             <button class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; font-weight: 600;" onclick="resetTacticalPitchPositions()">
               ⚽ Restablecer Formación Táctica
             </button>
@@ -273,8 +296,25 @@
           <span style="font-size: 0.75rem; color: #15803d;">Persistencia automática activa</span>
         </div>
 
-        <div class="pitch-container" id="prevPitchBContainer" style="margin-top: 1rem;">
-          <!-- Slide B Pitch Preview -->
+        <div style="background-color: #0f172a; border-radius: 8px; padding: 1rem; margin-top: 1rem; display: flex; gap: 1rem; position: relative;">
+          <!-- Lesionados Sidebar -->
+          <div style="width: 220px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.75rem; display: flex; flex-direction: column;">
+            <h4 style="color: white; font-size: 0.85rem; margin-bottom: 0.75rem; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 4px;">LESIONADOS / INJURED</h4>
+            
+            <div style="display: flex; gap: 4px; margin-bottom: 0.75rem;">
+              <select id="injuredPlayerSelect" class="form-control" style="font-size: 0.7rem; padding: 2px 4px; flex: 1;"></select>
+              <button class="btn btn-primary" style="padding: 2px 6px; font-size: 0.7rem;" onclick="addInjuredPlayer()">➕</button>
+            </div>
+
+            <div id="injuredPlayersList" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.4rem;">
+              <!-- Injured players rendered here -->
+            </div>
+          </div>
+
+          <!-- Pitch Container -->
+          <div class="pitch-container" id="prevPitchBContainer" style="flex: 1;">
+            <!-- Slide B Pitch Preview -->
+          </div>
         </div>
 
         <div class="slide-footer-gold">CLUB | SEASON | MEDICAL & SPORTS SCIENCE DEPARTMENT</div>

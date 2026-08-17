@@ -52,7 +52,9 @@ def init_db():
         ("yellow_cards", "INTEGER DEFAULT 0"),
         ("red_cards", "INTEGER DEFAULT 0"),
         ("goals", "INTEGER DEFAULT 0"),
-        ("seasons_data", "TEXT")
+        ("seasons_data", "TEXT"),
+        ("is_injured", "INTEGER DEFAULT 0"),
+        ("extra_pitch_team_id", "TEXT")
     ]
     for col_name, col_type in new_cols:
         if col_name not in p_cols:
@@ -226,25 +228,37 @@ def delete_player(player_id: str):
     conn.commit()
     conn.close()
 
-def update_player_pitch_position(player_id: str, pitch_x: float, pitch_y: float):
+def update_player_pitch_position(player_id: str, pitch_x: float, pitch_y: float, extra_pitch_team_id: str = None):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE players SET pitch_x = ?, pitch_y = ? WHERE id = ?", (pitch_x, pitch_y, player_id))
+    cursor.execute("UPDATE players SET pitch_x = ?, pitch_y = ?, extra_pitch_team_id = ? WHERE id = ?", (pitch_x, pitch_y, extra_pitch_team_id, player_id))
     conn.commit()
+    conn.close()
+
+def toggle_injured_status(player_id: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT is_injured FROM players WHERE id = ?", (player_id,))
+    row = cursor.fetchone()
+    if row:
+        new_val = 0 if row['is_injured'] == 1 else 1
+        cursor.execute("UPDATE players SET is_injured = ? WHERE id = ?", (new_val, player_id))
+        conn.commit()
     conn.close()
 
 def update_team_pitch_positions(positions: List[Dict]):
     conn = get_connection()
     cursor = conn.cursor()
     for pos in positions:
-        cursor.execute("UPDATE players SET pitch_x = ?, pitch_y = ? WHERE id = ?", (pos['pitch_x'], pos['pitch_y'], pos['player_id']))
+        extra = pos.get('extra_pitch_team_id', None)
+        cursor.execute("UPDATE players SET pitch_x = ?, pitch_y = ?, extra_pitch_team_id = ? WHERE id = ?", (pos['pitch_x'], pos['pitch_y'], extra, pos['player_id']))
     conn.commit()
     conn.close()
 
 def reset_team_pitch_positions(team_id: str):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE players SET pitch_x = NULL, pitch_y = NULL WHERE team_id = ?", (team_id,))
+    cursor.execute("UPDATE players SET pitch_x = NULL, pitch_y = NULL, extra_pitch_team_id = NULL WHERE team_id = ? OR extra_pitch_team_id = ?", (team_id, team_id))
     conn.commit()
     conn.close()
 
@@ -315,10 +329,13 @@ def get_player_season_26_27_stats(player_id: str) -> Dict:
         "red_cards": tot_reds
     }
 
-def get_players_by_team(team_id: str) -> List[Player]:
+def get_players_by_team(team_id: str, include_extra_pitch: bool = False) -> List[Player]:
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM players WHERE team_id = ?", (team_id,))
+    if include_extra_pitch:
+        cursor.execute("SELECT * FROM players WHERE team_id = ? OR extra_pitch_team_id = ?", (team_id, team_id))
+    else:
+        cursor.execute("SELECT * FROM players WHERE team_id = ?", (team_id,))
     rows = cursor.fetchall()
     conn.close()
     res = []

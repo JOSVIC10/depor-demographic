@@ -64,7 +64,21 @@ def update_player(player_id: str, player: PlayerCreate):
 @app.delete("/api/players/{player_id}")
 def delete_player(player_id: str):
     db.delete_player(player_id)
-    return {"success": True}
+    return {"status": "ok"}
+
+@app.post("/api/players/{player_id}/injured")
+def toggle_player_injured(player_id: str):
+    db.toggle_injured_status(player_id)
+    return {"status": "ok"}
+
+@app.get("/api/players/all")
+def get_all_players_global():
+    return db.get_all_players()
+
+@app.put("/api/players/{player_id}/pitch-position")
+def update_player_pitch_position(player_id: str, pitch_x: float = Body(...), pitch_y: float = Body(...), extra_pitch_team_id: str = Body(None)):
+    db.update_player_pitch_position(player_id, pitch_x, pitch_y, extra_pitch_team_id)
+    return {"status": "ok"}
 
 @app.post("/api/players/{player_id}/photo")
 async def upload_player_photo(player_id: str, file: UploadFile = File(...)):
@@ -897,12 +911,23 @@ def preview_squad_pitch(team_id: str):
     team = db.get_team(team_id)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
-    players = db.get_players_by_team(team_id)
+    players = db.get_players_by_team(team_id, include_extra_pitch=True)
     engine = LayoutEngine()
-    boxes = engine.layout_full_squad([p.model_dump() for p in players])
+    
+    injured = []
+    pitch_players = []
+    for p in players:
+        if getattr(p, 'is_injured', False):
+            injured.append(p)
+        else:
+            pitch_players.append(p)
+            
+    boxes = engine.layout_full_squad([p.model_dump() for p in pitch_players])
     return {
         "team": team,
-        "boxes": boxes
+        "boxes": boxes,
+        "injured": injured,
+        "all_pitch_players": players
     }
 
 @app.get("/api/preview/match/{match_id}")
@@ -945,8 +970,8 @@ def build_pptx(team_id: Optional[str], match_ids: List[str], export_all: bool) -
     if export_all:
         teams = db.get_teams()
         for team in teams:
-            players = db.get_players_by_team(team.id)
-            generator.generate_demographic_slide(team, players)
+            players = db.get_players_by_team(team.id, include_extra_pitch=True)
+            generator.generate_demographic_slide(team, db.get_players_by_team(team.id)) # demographic slide is original roster
             generator.generate_squad_pitch_slide(team, players)
             matches = db.get_matches_by_team(team.id)
             for m in matches:
@@ -958,9 +983,10 @@ def build_pptx(team_id: Optional[str], match_ids: List[str], export_all: bool) -
         team = db.get_team(team_id)
         if not team:
             raise HTTPException(status_code=404, detail="Team not found")
-        players = db.get_players_by_team(team_id)
-        generator.generate_demographic_slide(team, players)
-        generator.generate_squad_pitch_slide(team, players)
+        players_demographic = db.get_players_by_team(team_id)
+        players_pitch = db.get_players_by_team(team_id, include_extra_pitch=True)
+        generator.generate_demographic_slide(team, players_demographic)
+        generator.generate_squad_pitch_slide(team, players_pitch)
         if not match_ids:
             match_ids = [m.id for m in db.get_matches_by_team(team_id)]
         for m_id in match_ids:
@@ -983,10 +1009,11 @@ def build_pdf(team_id: Optional[str], match_ids: List[str], export_all: bool) ->
         generator = PDFReportGenerator(pdf_path)
         teams = db.get_teams()
         for team in teams:
-            players = db.get_players_by_team(team.id)
+            players_demographic = db.get_players_by_team(team.id)
+            players_pitch = db.get_players_by_team(team.id, include_extra_pitch=True)
             generator.generate_cover_slide(team)
-            generator.generate_demographic_slide(team, players)
-            generator.generate_squad_pitch_slide(team, players)
+            generator.generate_demographic_slide(team, players_demographic)
+            generator.generate_squad_pitch_slide(team, players_pitch)
             matches = db.get_matches_by_team(team.id)
             for m in matches:
                 m_data = db.get_match_full_data(m.id)
@@ -997,14 +1024,15 @@ def build_pdf(team_id: Optional[str], match_ids: List[str], export_all: bool) ->
         team = db.get_team(team_id)
         if not team:
             raise HTTPException(status_code=404, detail="Team not found")
-        players = db.get_players_by_team(team_id)
+        players_demographic = db.get_players_by_team(team_id)
+        players_pitch = db.get_players_by_team(team_id, include_extra_pitch=True)
         clean_team = sanitize_filename(team.name)
         out_name = f"{clean_team}_Analysis_Player.pdf"
         pdf_path = os.path.join(tmp_dir, out_name)
         generator = PDFReportGenerator(pdf_path)
         generator.generate_cover_slide(team)
-        generator.generate_demographic_slide(team, players)
-        generator.generate_squad_pitch_slide(team, players)
+        generator.generate_demographic_slide(team, players_demographic)
+        generator.generate_squad_pitch_slide(team, players_pitch)
         if not match_ids:
             match_ids = [m.id for m in db.get_matches_by_team(team_id)]
         for m_id in match_ids:

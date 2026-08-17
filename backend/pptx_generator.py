@@ -304,7 +304,25 @@ class PPTXGenerator:
             p.alignment = PP_ALIGN.CENTER
             p.font.bold = True
             p.font.size = Pt(box.font_size)
+            p.font.size = Pt(box.font_size)
             p.font.color.rgb = NAVY
+
+        # Render injured players
+        injured_players = [p for p in players if getattr(p, 'is_injured', False)]
+        if injured_players:
+            txBox = slide.shapes.add_textbox(Inches(0.2), Inches(1.2), Inches(2.5), Inches(0.5))
+            tf = txBox.text_frame
+            p = tf.paragraphs[0]
+            p.text = "LESIONADOS / INJURED"
+            p.font.bold = True
+            p.font.size = Pt(12)
+            p.font.color.rgb = NAVY
+            
+            for ip in injured_players:
+                p = tf.add_paragraph()
+                p.text = f"• {ip.name}"
+                p.font.size = Pt(10)
+                p.font.color.rgb = NAVY
 
     def generate_match_report_slide(self, full_match: Dict):
         match = full_match['match']
