@@ -971,9 +971,14 @@ function renderTacticalPitch() {
         const leftPct = (st.grid_x * 100).toFixed(1);
         const topPct = (st.grid_y * 100).toFixed(1);
         
+        const photoContent = (p && p.photo_url) 
+          ? `<img src="${p.photo_url}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`
+          : `<span style="font-size: 1rem; color: white;">👤</span>`;
+          
         return `
           <div class="pitch-player-box" data-player-id="${st.player_id}" data-player-name="${p.name}" style="left: ${leftPct}%; top: ${topPct}%;" title="Arrastra para mover en el campo">
-            <div class="player-photo-circle">
+            <div class="player-photo-circle" style="overflow: hidden; display: flex; align-items: center; justify-content: center; background: #002060; position: relative;">
+              ${photoContent}
               ${badgesHtml}
             </div>
             <div class="player-name-pill">${p.name}</div>
