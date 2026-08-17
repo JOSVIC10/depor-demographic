@@ -255,16 +255,16 @@ def import_all_teams_passport():
             season_entries = []
             s_blocks = re.findall(r'(20\d{2}-\d{2})\s+([\s\S]+?)(?=(?:20\d{2}-\d{2}|International|Posicion|$))', full_text)
             for s_year, s_content in s_blocks:
-                tot_m = re.search(r'TOTAL\s+([\d\.\']+)\'\s+(\d+)', s_content)
+                tot_m = re.search(r'TOTAL\s+(\d+)\s+([\d\.\']+)\'', s_content)
                 if tot_m:
-                    mins_v = int(tot_m.group(1).replace('.', '').replace("'", ''))
-                    apps_v = int(tot_m.group(2))
+                    apps_v = int(tot_m.group(1))
+                    mins_v = int(tot_m.group(2).replace('.', '').replace("'", ''))
                     season_entries.append(f"• {s_year}: {mins_v}' mins ({apps_v} partidos)")
                 else:
-                    dir_m = re.search(r'([\d\.\']+)\'\s+(\d+)', s_content)
+                    dir_m = re.search(r'(\d+)\s+([\d\.\']+)\'', s_content)
                     if dir_m:
-                        mins_v = int(dir_m.group(1).replace('.', '').replace("'", ''))
-                        apps_v = int(dir_m.group(2))
+                        apps_v = int(dir_m.group(1))
+                        mins_v = int(dir_m.group(2).replace('.', '').replace("'", ''))
                         season_entries.append(f"• {s_year}: {mins_v}' mins ({apps_v} partidos)")
 
             seasons_summary = "\n".join(season_entries) if season_entries else None
@@ -396,19 +396,19 @@ def auto_import_passport():
                 s_blocks = re.findall(r'(20\d{2}-\d{2})\s+([\s\S]+?)(?=(?:20\d{2}-\d{2}|International|Posicion|$))', full_text)
                 for s_year, s_content in s_blocks:
                     # Find TOTAL line in season content
-                    tot_m = re.search(r'TOTAL\s+([\d\.\']+)\'\s+(\d+)', s_content)
+                    tot_m = re.search(r'TOTAL\s+(\d+)\s+([\d\.\']+)\'', s_content)
                     if tot_m:
-                        mins_v = int(tot_m.group(1).replace('.', '').replace("'", ''))
-                        apps_v = int(tot_m.group(2))
+                        apps_v = int(tot_m.group(1))
+                        mins_v = int(tot_m.group(2).replace('.', '').replace("'", ''))
                         season_entries.append(f"• {s_year}: {mins_v}' mins ({apps_v} partidos)")
                         latest_mins = mins_v
                         latest_apps = apps_v
                     else:
                         # Direct line without TOTAL keyword
-                        dir_m = re.search(r'([\d\.\']+)\'\s+(\d+)', s_content)
+                        dir_m = re.search(r'(\d+)\s+([\d\.\']+)\'', s_content)
                         if dir_m:
-                            mins_v = int(dir_m.group(1).replace('.', '').replace("'", ''))
-                            apps_v = int(dir_m.group(2))
+                            apps_v = int(dir_m.group(1))
+                            mins_v = int(dir_m.group(2).replace('.', '').replace("'", ''))
                             season_entries.append(f"• {s_year}: {mins_v}' mins ({apps_v} partidos)")
                             latest_mins = mins_v
                             latest_apps = apps_v
