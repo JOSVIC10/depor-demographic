@@ -2,9 +2,9 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Depor | Squad Demographic & Match Report Generator</title>
-  <link rel="stylesheet" href="/static/style.css?v=111">
+  <link rel="stylesheet" href="/static/style.css?v=130">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -335,15 +335,15 @@
           <span style="font-size: 0.75rem; color: #15803d;">Persistencia automática activa</span>
         </div>
 
-        <div style="background-color: #0f172a; border-radius: 8px; padding: 1rem; margin-top: 1rem; display: flex; gap: 1rem; position: relative;">
+        <div class="slide-b-content-grid">
           <!-- Lesionados Sidebar -->
-          <div style="width: 270px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.75rem; display: flex; flex-direction: column;">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 6px; margin-bottom: 0.75rem;">
-              <h4 style="color: white; font-size: 0.85rem; font-weight: 700; margin: 0;">🏥 LESIONADOS / INJURED</h4>
+          <div class="lesionados-sidebar">
+            <div class="lesionados-sidebar-header">
+              <h4>🏥 LESIONADOS / INJURED</h4>
               <button class="btn btn-primary" style="padding: 2px 8px; font-size: 0.72rem; font-weight: 700;" onclick="openAddInjuryModal()" title="Registrar nuevo jugador lesionado">➕ Añadir</button>
             </div>
 
-            <div id="injuredPlayersList" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; max-height: 520px;">
+            <div id="injuredPlayersList" class="injured-players-scroll">
               <!-- Injured players rendered here -->
             </div>
           </div>
@@ -367,7 +367,7 @@
           <div class="slide-kpi-box" id="prevKpiC">TOTAL NUMBER OF SUBSTITUTIONS: 0</div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 200px 1fr 220px; gap: 1rem; margin-top: 1rem;">
+        <div class="slide-c-content-grid">
           <div style="background-color: var(--peach-accent); padding: 0.75rem; border-radius: 6px; font-size: 0.8rem;" id="prevSubListC">
             <!-- Subs list -->
           </div>
@@ -902,6 +902,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=110"></script>
+  <script src="/static/app.js?v=130"></script>
 </body>
 </html>

@@ -26,8 +26,16 @@ app.add_middleware(
     expose_headers=["Content-Disposition"]
 )
 
-# Initialize Database
+# Initialize Database and ensure full data is seeded
 db.init_db()
+try:
+    teams = db.get_teams()
+    depor_players = db.get_players_by_team("depor") if teams else []
+    if not teams or len(depor_players) == 0:
+        from seed_data import seed
+        seed()
+except Exception as e:
+    print(f"Error auto-seeding database on startup: {e}")
 
 # Mount frontend static files
 frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend")
