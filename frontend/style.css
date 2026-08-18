@@ -225,6 +225,8 @@ body {
 /* Data Table */
 .data-table-container {
   overflow-x: auto;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-color);
 }
 
 .table {
@@ -237,8 +239,43 @@ body {
 .table th {
   background-color: var(--navy-primary);
   color: white;
-  padding: 0.75rem 1rem;
+  padding: 0.85rem 1rem;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.table th.sortable:hover {
+  background-color: var(--navy-light);
+  color: var(--gold-accent);
+}
+
+.table th.sortable.active-sort {
+  background-color: var(--navy-dark);
+  color: var(--gold-accent);
+  border-bottom: 2px solid var(--gold-accent);
+}
+
+.table th .th-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.table th .sort-icon {
+  font-size: 0.8rem;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.table th.sortable:hover .sort-icon,
+.table th.sortable.active-sort .sort-icon {
+  opacity: 1;
 }
 
 .table td {
@@ -247,7 +284,7 @@ body {
 }
 
 .table tbody tr:hover {
-  background-color: rgba(0, 32, 96, 0.02);
+  background-color: rgba(0, 32, 96, 0.03);
 }
 
 .badge {
@@ -260,6 +297,155 @@ body {
 .badge-position {
   background-color: var(--pale-green);
   color: var(--dark-green);
+}
+
+/* Players Filter & Sort Toolbar */
+.players-filter-bar {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.filter-bar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.filter-group-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--navy-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.search-input-wrapper {
+  position: relative;
+  min-width: 240px;
+  display: flex;
+  align-items: center;
+}
+
+.search-input-wrapper .search-icon {
+  position: absolute;
+  left: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.search-input-wrapper input {
+  width: 100%;
+  padding: 0.5rem 2rem 0.5rem 2.2rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  font-size: 0.88rem;
+  background: white;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.search-input-wrapper input:focus {
+  border-color: var(--navy-primary);
+  box-shadow: 0 0 0 3px rgba(0, 32, 96, 0.1);
+}
+
+.search-input-wrapper .clear-btn {
+  position: absolute;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 50%;
+  display: none;
+}
+
+.search-input-wrapper .clear-btn:hover {
+  color: #475569;
+  background: #f1f5f9;
+}
+
+.sort-select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--navy-primary);
+  background: white;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sort-select:focus {
+  border-color: var(--navy-primary);
+  box-shadow: 0 0 0 3px rgba(0, 32, 96, 0.1);
+}
+
+.sort-dir-btn {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  background: white;
+  border-radius: 0.5rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--navy-primary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: all 0.15s ease;
+}
+
+.sort-dir-btn:hover {
+  background: #f1f5f9;
+  border-color: var(--navy-primary);
+}
+
+.filter-reset-btn {
+  padding: 0.45rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 0.4rem;
+  border: 1px solid #e2e8f0;
+  background: white;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.filter-reset-btn:hover {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+.filter-counter-badge {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+  background: #e2e8f0;
+  padding: 0.3rem 0.65rem;
+  border-radius: 1rem;
+  white-space: nowrap;
 }
 
 /* Drag and Drop CSV Importer */

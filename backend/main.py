@@ -5,13 +5,15 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 import shutil
 import tempfile
+import requests
 import pandas as pd
 from typing import List, Dict, Optional, Tuple
-from backend.models import Player, PlayerCreate, Team, Match, MatchCreate, LineupEntry, SubstitutionEvent
+from backend.models import Player, PlayerCreate, PlayerInjuryUpdate, Team, Match, MatchCreate, LineupEntry, SubstitutionEvent
 from backend import database as db
 from backend.layout_engine import LayoutEngine, PitchSpec
 from backend.pptx_generator import PPTXGenerator
 from backend.pdf_converter import convert_pptx_to_pdf
+from backend.scraper import scrape_besoccer_player
 
 app = FastAPI(title="Depor Demographic & Match Report Generator")
 
@@ -57,6 +59,55 @@ def list_players(team_id: str):
 def add_player(team_id: str, player: PlayerCreate):
     return db.create_player(player.name, player.birthdate, player.detailed_position, team_id)
 
+@app.post("/api/teams/{team_id}/players/import-besoccer", response_model=Player)
+def import_player_from_besoccer(team_id: str, payload: Dict = Body(...)):
+    url = payload.get("url", "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL de perfil de BeSoccer requerida.")
+    
+    result = scrape_besoccer_player(url)
+    if "error" in result or not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "No se pudo extraer la información del jugador."))
+    
+    p_data = result.get("player", {})
+    if not p_data.get("name"):
+        raise HTTPException(status_code=400, detail="No se encontró el nombre del jugador en el enlace.")
+    
+    p = db.create_player(
+        name=p_data["name"],
+        birthdate=p_data.get("birthdate", "2000-01-01"),
+        detailed_position=p_data.get("detailed_position", "Centrocampista"),
+        team_id=team_id
+    )
+
+    photo_src = p_data.get("photo_src_url")
+    if photo_src:
+        try:
+            photos_dir = os.path.join(frontend_dir, "photos")
+            os.makedirs(photos_dir, exist_ok=True)
+            photo_filename = f"{p.id}.png"
+            photo_dest = os.path.join(photos_dir, photo_filename)
+            img_r = requests.get(photo_src, timeout=12, headers={"User-Agent": "Mozilla/5.0"})
+            if img_r.status_code == 200:
+                with open(photo_dest, "wb") as f:
+                    f.write(img_r.content)
+                db.update_player_photo(p.id, f"/static/photos/{photo_filename}")
+        except Exception as err:
+            print(f"Error saving BeSoccer photo: {err}")
+
+    stats = {
+        "minutes_played": p_data.get("minutes_played", 0),
+        "starts": p_data.get("starts", 0),
+        "subs_in": p_data.get("subs_in", 0),
+        "yellow_cards": p_data.get("yellow_cards", 0),
+        "red_cards": p_data.get("red_cards", 0),
+        "goals": p_data.get("goals", 0),
+        "seasons_data": p_data.get("seasons_data", "")
+    }
+    db.update_player_stats(p.id, stats)
+
+    return db.get_player(p.id)
+
 @app.put("/api/players/{player_id}", response_model=Player)
 def update_player(player_id: str, player: PlayerCreate):
     return db.update_player(player_id, player.name, player.birthdate, player.detailed_position, player.team_id)
@@ -67,8 +118,17 @@ def delete_player(player_id: str):
     return {"status": "ok"}
 
 @app.post("/api/players/{player_id}/injured")
-def toggle_player_injured(player_id: str):
-    db.toggle_injured_status(player_id)
+def update_player_injured(player_id: str, injury_data: Optional[PlayerInjuryUpdate] = Body(None)):
+    if injury_data is not None:
+        db.set_player_injury(
+            player_id=player_id,
+            is_injured=injury_data.is_injured,
+            injury_description=injury_data.injury_description or "",
+            injury_return_time=injury_data.injury_return_time or "",
+            injury_phase=injury_data.injury_phase or ""
+        )
+    else:
+        db.toggle_injured_status(player_id)
     return {"status": "ok"}
 
 @app.get("/api/players/all")
@@ -542,6 +602,8 @@ def create_match(match: MatchCreate):
         away_goals=match.away_goals,
         is_home=match.is_home,
         competition=match.competition,
+        match_type=match.match_type or "LIGA",
+        matchday=match.matchday or "",
         custom_title=match.custom_title,
         playing_time=match.playing_time,
         substitute_cadence=match.substitute_cadence,

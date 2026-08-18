@@ -320,8 +320,16 @@ class PPTXGenerator:
             
             for ip in injured_players:
                 p = tf.add_paragraph()
-                p.text = f"• {ip.name}"
-                p.font.size = Pt(10)
+                extra_parts = []
+                if getattr(ip, 'injury_description', None):
+                    extra_parts.append(str(ip.injury_description).strip())
+                if getattr(ip, 'injury_phase', None):
+                    extra_parts.append(str(ip.injury_phase).strip())
+                if getattr(ip, 'injury_return_time', None):
+                    extra_parts.append(str(ip.injury_return_time).strip())
+                info_text = f" ({' | '.join(extra_parts)})" if extra_parts else ""
+                p.text = f"• {ip.name}{info_text}"
+                p.font.size = Pt(8.5)
                 p.font.color.rgb = NAVY
 
     def generate_match_report_slide(self, full_match: Dict):

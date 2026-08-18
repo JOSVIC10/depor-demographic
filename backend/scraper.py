@@ -257,3 +257,181 @@ def scrape_besoccer_match(url: str):
             "subs": away_subs
         }
     }
+
+def scrape_besoccer_player(url: str):
+    """Scrapes a BeSoccer player profile page to extract details, photo, birthdate, and stats."""
+    html_content = None
+    last_error = None
+
+    headers_list = [
+        {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+            'Referer': 'https://es.besoccer.com/',
+        },
+        {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3',
+            'Referer': 'https://es.besoccer.com/',
+        }
+    ]
+
+    for browser_name in ['chrome', 'firefox']:
+        try:
+            scraper = cloudscraper.create_scraper(
+                browser={'browser': browser_name, 'platform': 'windows', 'desktop': True}
+            )
+            resp = scraper.get(url, headers=headers_list[0 if browser_name == 'chrome' else 1], timeout=12)
+            if resp.status_code == 200 and len(resp.text) > 1000:
+                html_content = resp.text
+                break
+        except Exception as e:
+            last_error = str(e)
+
+    if not html_content:
+        for headers in headers_list:
+            try:
+                session = requests.Session()
+                resp = session.get(url, headers=headers, timeout=12)
+                if resp.status_code == 200 and len(resp.text) > 1000:
+                    html_content = resp.text
+                    break
+            except Exception as e:
+                last_error = str(e)
+
+    if not html_content:
+        return {"error": f"No se pudo descargar la información del jugador: {last_error or 'Bloqueo o timeout'}"}
+
+    soup = BeautifulSoup(html_content, 'html.parser')
+    import json
+
+    player_data = {
+        "name": "",
+        "photo_url": None,
+        "photo_src_url": None,
+        "birthdate": "2000-01-01",
+        "detailed_position": "Centrocampista",
+        "minutes_played": 0,
+        "starts": 0,
+        "subs_in": 0,
+        "goals": 0,
+        "yellow_cards": 0,
+        "red_cards": 0,
+        "seasons_data": ""
+    }
+
+    # 1. Try JSON-LD script extraction
+    for script_tag in soup.select('script[type="application/ld+json"]'):
+        if script_tag and script_tag.string:
+            try:
+                js_data = json.loads(script_tag.string)
+                if isinstance(js_data, dict):
+                    if js_data.get("@type") in ["Person", "Athlete"] or "birthDate" in js_data or "name" in js_data:
+                        if "name" in js_data and not player_data["name"]:
+                            player_data["name"] = js_data["name"].strip()
+                        if "image" in js_data and not player_data["photo_src_url"]:
+                            img = js_data["image"]
+                            if isinstance(img, str):
+                                player_data["photo_src_url"] = img
+                            elif isinstance(img, dict) and "url" in img:
+                                player_data["photo_src_url"] = img["url"]
+                        if "birthDate" in js_data:
+                            bdate = js_data["birthDate"].strip()
+                            if re.match(r"^\d{4}-\d{2}-\d{2}$", bdate):
+                                player_data["birthdate"] = bdate
+                elif isinstance(js_data, list):
+                    for item in js_data:
+                        if isinstance(item, dict) and item.get("@type") in ["Person", "Athlete"]:
+                            if "name" in item and not player_data["name"]:
+                                player_data["name"] = item["name"].strip()
+                            if "image" in item and not player_data["photo_src_url"]:
+                                player_data["photo_src_url"] = item["image"] if isinstance(item["image"], str) else item["image"].get("url")
+                            if "birthDate" in item:
+                                player_data["birthdate"] = item["birthDate"].strip()
+            except Exception:
+                pass
+
+    # 2. Extract Name from HTML
+    if not player_data["name"]:
+        name_node = soup.select_one('h1.name, h1.title, .player-info h1, .head-title h1, .header-player h1, .name-player')
+        if name_node:
+            player_data["name"] = name_node.get_text(strip=True)
+        else:
+            title_node = soup.select_one('title')
+            if title_node:
+                t_text = title_node.get_text()
+                player_data["name"] = t_text.split("-")[0].split("|")[0].strip()
+
+    # 3. Extract Photo
+    if not player_data["photo_src_url"]:
+        photo_node = soup.select_one('.head-player img, .avatar-box img, .player-photo img, .main-player-info img, img.player-img, img[src*="players/"]')
+        if photo_node and photo_node.get('src'):
+            src = photo_node.get('src')
+            if not src.startswith('data:'):
+                player_data["photo_src_url"] = src
+
+    # 4. Extract Birthdate & Position from bio items
+    page_text = soup.get_text()
+    
+    # Birthdate search (e.g. 14 May 2002 or 14/05/2002 or 2002-05-14)
+    bdate_match = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", page_text)
+    if bdate_match and player_data["birthdate"] == "2000-01-01":
+        player_data["birthdate"] = f"{bdate_match.group(1)}-{bdate_match.group(2).zfill(2)}-{bdate_match.group(3).zfill(2)}"
+    else:
+        bdate_match_dmy = re.search(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", page_text)
+        if bdate_match_dmy and player_data["birthdate"] == "2000-01-01":
+            player_data["birthdate"] = f"{bdate_match_dmy.group(3)}-{bdate_match_dmy.group(2).zfill(2)}-{bdate_match_dmy.group(1).zfill(2)}"
+
+    # Position detection
+    pos_nodes = soup.select('.pos, .position, .role, .demarcacion, .tag-position')
+    found_pos = ""
+    for pn in pos_nodes:
+        txt = pn.get_text(strip=True)
+        if txt:
+            found_pos = txt
+            break
+            
+    if not found_pos:
+        # Search common position keywords in text
+        pos_keywords = [
+            ("Portero", "Portero"),
+            ("Defensa central", "Defensa central"),
+            ("Lateral izquierdo", "Lateral izquierdo"),
+            ("Lateral derecho", "Lateral derecho"),
+            ("Pivote", "Pivote"),
+            ("Mediocentro ofensivo", "Mediocentro ofensivo"),
+            ("Mediocentro", "Mediocentro"),
+            ("Extremo izquierdo", "Extremo izquierdo"),
+            ("Extremo derecho", "Extremo derecho"),
+            ("Delantero centro", "Delantero centro"),
+            ("Delantero", "Delantero centro"),
+            ("Defensa", "Defensa central"),
+            ("Centrocampista", "Mediocentro")
+        ]
+        for kw, mapped in pos_keywords:
+            if kw.lower() in page_text.lower():
+                found_pos = mapped
+                break
+
+    if found_pos:
+        player_data["detailed_position"] = found_pos
+
+    # 5. Extract Stats (Minutes, matches, goals, cards)
+    stat_rows = soup.select('.stat-row, tr.stats, .stats-box tr, table.stats tr')
+    for sr in stat_rows:
+        txt = sr.get_text(separator=" ", strip=True).lower()
+        if "minuto" in txt or "min" in txt:
+            m = re.search(r"(\d+[\.,]?\d*)\s*(?:min|')", txt)
+            if m:
+                player_data["minutes_played"] = int(m.group(1).replace(".", "").replace(",", ""))
+        if "gol" in txt:
+            m = re.search(r"(\d+)\s*gol", txt)
+            if m:
+                player_data["goals"] = int(m.group(1))
+
+    return {
+        "success": True,
+        "player": player_data
+    }

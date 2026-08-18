@@ -47,7 +47,8 @@
             <span>Plantilla de Jugadores</span>
             <span id="playerCountBadge" class="badge badge-position" style="font-size: 0.85rem;">0 Jugadores</span>
           </div>
-          <div style="display: flex; gap: 0.5rem;">
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="btn btn-secondary" style="border-color: #0284c7; color: #0284c7; font-weight: 700;" onclick="openImportPlayerBeSoccerModal()">🔗 Importar de BeSoccer</button>
             <button class="btn btn-primary" onclick="openAddPlayerModal()">+ Añadir Jugador</button>
           </div>
         </div>
@@ -59,37 +60,75 @@
           <input type="file" id="csvFileInput" accept=".csv, .xlsx, .xls" style="display: none;" onchange="handleFileSelect(event)">
         </div>
 
+        <!-- Players Filter & Sort Toolbar -->
+        <div class="players-filter-bar">
+          <!-- Left: Buscar -->
+          <div class="filter-bar-group">
+            <span class="filter-group-title">🔍 Buscar:</span>
+            <div class="search-input-wrapper">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="playerSearchInput" placeholder="Buscar por nombre, posición, edad..." oninput="handlePlayerSearch(this.value)">
+              <button id="playerSearchClearBtn" class="clear-btn" onclick="clearPlayerSearch()" title="Limpiar búsqueda">✕</button>
+            </div>
+            <select id="playerCatFilter" class="sort-select" onchange="handleCategoryFilter(this.value)" title="Filtrar por categoría">
+              <option value="">Todas las categorías</option>
+              <option value="POR">Porteros (POR)</option>
+              <option value="DEF">Defensas (DEF)</option>
+              <option value="CEN">Centrocampistas (CEN)</option>
+              <option value="DEL">Delanteros (DEL)</option>
+            </select>
+          </div>
+
+          <!-- Right: Ordenar -->
+          <div class="filter-bar-group">
+            <span class="filter-group-title">⇅ Ordenar:</span>
+            <select id="playerSortSelect" class="sort-select" onchange="handleSortSelect(this.value)">
+              <option value="name_asc">Nombre (A → Z)</option>
+              <option value="name_desc">Nombre (Z → A)</option>
+              <option value="birthdate_desc">Fecha Nacimiento (Más joven)</option>
+              <option value="birthdate_asc">Fecha Nacimiento (Más veterano)</option>
+              <option value="age_asc">Edad (Menor a mayor)</option>
+              <option value="age_desc">Edad (Mayor a menor)</option>
+              <option value="position_asc">Posición (A → Z)</option>
+              <option value="minutes_desc">Minutos jugados (Mayor a menor)</option>
+              <option value="starts_desc">Titularidades (Mayor a menor)</option>
+              <option value="goals_desc">Goles (Mayor a menor)</option>
+            </select>
+            <button id="playerSortDirBtn" class="sort-dir-btn" onclick="toggleSortDirection()" title="Invertir dirección del orden">
+              <span id="sortDirIcon">⬆️</span> <span id="sortDirLabel">Asc</span>
+            </button>
+            <button id="playerResetFilterBtn" class="filter-reset-btn" onclick="resetPlayersFilters()" title="Restablecer filtros y orden">
+              🔄 Limpiar
+            </button>
+            <span id="playerFilteredCount" class="filter-counter-badge">0 de 0</span>
+          </div>
+        </div>
+
         <!-- Players Table -->
         <div class="data-table-container">
           <table class="table">
             <thead>
               <tr>
                 <th style="width: 50px;">Foto</th>
-                <th>Nombre</th>
-                <th>Fecha de Nacimiento</th>
-                <th>Edad</th>
-                <th>Posición Detallada</th>
-                <th>Categoría</th>
-                <th>Métricas (Min / Tit / Goles)</th>
-                <th style="text-align: right;">Acciones</th>
-              </tr>
-              <tr style="background: #f1f5f9;">
-                <th></th>
-                <th><input type="text" id="filterName" class="form-control" style="font-size: 0.75rem; padding: 0.2rem 0.4rem; height: auto;" placeholder="Filtrar..." onkeyup="applyPlayersFilter()"></th>
-                <th></th>
-                <th><input type="text" id="filterAge" class="form-control" style="font-size: 0.75rem; padding: 0.2rem 0.4rem; height: auto;" placeholder="Filtrar..." onkeyup="applyPlayersFilter()"></th>
-                <th><input type="text" id="filterPos" class="form-control" style="font-size: 0.75rem; padding: 0.2rem 0.4rem; height: auto;" placeholder="Filtrar..." onkeyup="applyPlayersFilter()"></th>
-                <th>
-                  <select id="filterCat" class="form-control" style="font-size: 0.75rem; padding: 0.2rem 0.4rem; height: auto;" onchange="applyPlayersFilter()">
-                    <option value="">Todas</option>
-                    <option value="POR">POR</option>
-                    <option value="DEF">DEF</option>
-                    <option value="CEN">CEN</option>
-                    <option value="DEL">DEL</option>
-                  </select>
+                <th class="sortable" onclick="sortByColumn('name')" id="th-name" title="Clic para ordenar por Nombre">
+                  <span class="th-content">Nombre <span class="sort-icon" id="sort-icon-name">↕</span></span>
                 </th>
-                <th></th>
-                <th></th>
+                <th class="sortable" onclick="sortByColumn('birthdate')" id="th-birthdate" title="Clic para ordenar por Fecha de Nacimiento">
+                  <span class="th-content">Fecha de Nacimiento <span class="sort-icon" id="sort-icon-birthdate">↕</span></span>
+                </th>
+                <th class="sortable" onclick="sortByColumn('age')" id="th-age" title="Clic para ordenar por Edad">
+                  <span class="th-content">Edad <span class="sort-icon" id="sort-icon-age">↕</span></span>
+                </th>
+                <th class="sortable" onclick="sortByColumn('detailed_position')" id="th-detailed_position" title="Clic para ordenar por Posición">
+                  <span class="th-content">Posición Detallada <span class="sort-icon" id="sort-icon-detailed_position">↕</span></span>
+                </th>
+                <th class="sortable" onclick="sortByColumn('derived_category')" id="th-derived_category" title="Clic para ordenar por Categoría">
+                  <span class="th-content">Categoría <span class="sort-icon" id="sort-icon-derived_category">↕</span></span>
+                </th>
+                <th class="sortable" onclick="sortByColumn('minutes_played')" id="th-minutes_played" title="Clic para ordenar por Minutos">
+                  <span class="th-content">Métricas (Min / Tit / Goles) <span class="sort-icon" id="sort-icon-minutes_played">↕</span></span>
+                </th>
+                <th style="text-align: right;">Acciones</th>
               </tr>
             </thead>
             <tbody id="playersTableBody">
@@ -298,15 +337,13 @@
 
         <div style="background-color: #0f172a; border-radius: 8px; padding: 1rem; margin-top: 1rem; display: flex; gap: 1rem; position: relative;">
           <!-- Lesionados Sidebar -->
-          <div style="width: 220px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.75rem; display: flex; flex-direction: column;">
-            <h4 style="color: white; font-size: 0.85rem; margin-bottom: 0.75rem; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 4px;">LESIONADOS / INJURED</h4>
-            
-            <div style="display: flex; gap: 4px; margin-bottom: 0.75rem;">
-              <select id="injuredPlayerSelect" class="form-control" style="font-size: 0.7rem; padding: 2px 4px; flex: 1;"></select>
-              <button class="btn btn-primary" style="padding: 2px 6px; font-size: 0.7rem;" onclick="addInjuredPlayer()">➕</button>
+          <div style="width: 270px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.75rem; display: flex; flex-direction: column;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 6px; margin-bottom: 0.75rem;">
+              <h4 style="color: white; font-size: 0.85rem; font-weight: 700; margin: 0;">🏥 LESIONADOS / INJURED</h4>
+              <button class="btn btn-primary" style="padding: 2px 8px; font-size: 0.72rem; font-weight: 700;" onclick="openAddInjuryModal()" title="Registrar nuevo jugador lesionado">➕ Añadir</button>
             </div>
 
-            <div id="injuredPlayersList" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.4rem;">
+            <div id="injuredPlayersList" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; max-height: 520px;">
               <!-- Injured players rendered here -->
             </div>
           </div>
@@ -404,7 +441,7 @@
         <input type="text" id="newPlayerName" class="form-control" placeholder="Ej. Lucas Pérez">
       </div>
       <div class="form-group">
-        <label>Fecha de Nacimiento (YYYY-MM-DD):</label>
+        <label>Fecha de Nacimiento:</label>
         <input type="date" id="newPlayerBirthdate" class="form-control" value="2000-01-01">
       </div>
       <div class="form-group">
@@ -578,7 +615,7 @@
 
   <!-- Add Match Modal -->
   <div class="modal-overlay" id="addMatchModal">
-    <div class="modal" style="max-width: 540px;">
+    <div class="modal" style="max-width: 560px;">
       <div class="modal-header">
         <h3 style="color: var(--navy-primary);">⚽ Añadir Nuevo Partido</h3>
         <button class="modal-close" onclick="closeAddMatchModal()">&times;</button>
@@ -595,8 +632,24 @@
           <input type="date" id="newMatchDate" class="form-control" value="2026-08-15">
         </div>
         <div class="form-group">
+          <label>Tipología de Partido:</label>
+          <select id="newMatchCompetitionType" class="form-control" onchange="onMatchCompetitionTypeChange('new')">
+            <option value="LIGA">Liga (Oficial)</option>
+            <option value="AMISTOSO">Amistoso</option>
+            <option value="COPA">Copa del Rey / Eliminatoria</option>
+            <option value="OTRO">Otro</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="form-group">
           <label>Competición:</label>
           <input type="text" id="newMatchCompetition" class="form-control" placeholder="Ej. LALIGA HYPERMOTION" value="LALIGA HYPERMOTION">
+        </div>
+        <div class="form-group">
+          <label>Jornada / Ronda:</label>
+          <input type="text" id="newMatchDay" class="form-control" placeholder="Ej. Jornada 1 o J01">
         </div>
       </div>
 
@@ -649,7 +702,7 @@
 
   <!-- Edit Match Modal -->
   <div class="modal-overlay" id="editMatchModal">
-    <div class="modal" style="max-width: 540px;">
+    <div class="modal" style="max-width: 560px;">
       <div class="modal-header">
         <h3 style="color: var(--navy-primary);">✏️ Editar Datos del Partido</h3>
         <button class="modal-close" onclick="closeEditMatchModal()">&times;</button>
@@ -666,8 +719,24 @@
           <input type="date" id="editMatchDate" class="form-control">
         </div>
         <div class="form-group">
+          <label>Tipología de Partido:</label>
+          <select id="editMatchCompetitionType" class="form-control" onchange="onMatchCompetitionTypeChange('edit')">
+            <option value="LIGA">Liga (Oficial)</option>
+            <option value="AMISTOSO">Amistoso</option>
+            <option value="COPA">Copa del Rey / Eliminatoria</option>
+            <option value="OTRO">Otro</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="form-group">
           <label>Competición:</label>
           <input type="text" id="editMatchCompetition" class="form-control">
+        </div>
+        <div class="form-group">
+          <label>Jornada / Ronda:</label>
+          <input type="text" id="editMatchDay" class="form-control" placeholder="Ej. Jornada 1 o J01">
         </div>
       </div>
 
@@ -714,6 +783,81 @@
       <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;">
         <button class="btn btn-secondary" onclick="closeEditMatchModal()">Cancelar</button>
         <button class="btn btn-primary" onclick="submitEditMatch()">Guardar Cambios</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BeSoccer Player Import Modal -->
+  <div class="modal-overlay" id="importPlayerBeSoccerModal">
+    <div class="modal" style="max-width: 560px;">
+      <div class="modal-header">
+        <h3 style="color: var(--navy-primary); font-size: 1.1rem; font-weight: 700;">🔗 Importar Jugador desde BeSoccer</h3>
+        <button class="modal-close" onclick="closeImportPlayerBeSoccerModal()">&times;</button>
+      </div>
+      <div style="padding: 1rem 0;">
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.4;">
+          Pega el enlace del perfil del jugador en BeSoccer (ej: <code>https://es.besoccer.com/jugador/nombre-12345</code>). Se importarán automáticamente el nombre, fecha de nacimiento, posición detallada, métricas y la foto oficial.
+        </p>
+        <div class="form-group">
+          <label style="font-weight: 700; color: var(--navy-primary);">Enlace / URL de BeSoccer:</label>
+          <input type="text" id="importPlayerBeSoccerUrl" class="form-control" placeholder="https://es.besoccer.com/jugador/..." style="font-size: 0.9rem;">
+        </div>
+        <div id="importPlayerBeSoccerStatus" style="font-size: 0.85rem; margin-top: 0.75rem; padding: 0.5rem; border-radius: 4px; display: none;"></div>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 0.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+        <button class="btn btn-secondary" onclick="closeImportPlayerBeSoccerModal()">Cancelar</button>
+        <button id="btnSubmitImportBeSoccerPlayer" class="btn btn-primary" onclick="submitImportPlayerBeSoccer()">📥 Importar Jugador</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Injury Management Modal -->
+  <div class="modal-overlay" id="injuryModal">
+    <div class="modal" style="max-width: 540px;">
+      <div class="modal-header">
+        <h3 style="color: #dc2626; font-size: 1.15rem; font-weight: 800; display: flex; align-items: center; gap: 6px;">
+          <span>🏥 Registro de Lesión Médica</span>
+        </h3>
+        <button class="modal-close" onclick="closeInjuryModal()">&times;</button>
+      </div>
+      <div style="padding: 1rem 0;">
+        <input type="hidden" id="injuryModalPlayerId">
+        
+        <div class="form-group">
+          <label style="font-weight: 700; color: var(--navy-primary);">Jugador:</label>
+          <select id="injuryPlayerSelect" class="form-control" style="font-weight: 600;">
+            <!-- Populated dynamically -->
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label style="font-weight: 700; color: var(--navy-primary);">Diagnóstico / Tipo de Lesión:</label>
+          <input type="text" id="injuryDescription" class="form-control" placeholder="Ej. Rotura fibrilar bíceps femoral grado I, Esguince de tobillo...">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group">
+            <label style="font-weight: 700; color: var(--navy-primary);">Tiempo Estimado:</label>
+            <input type="text" id="injuryReturnTime" class="form-control" placeholder="Ej. 3 semanas, 1 mes, Baja indefinida...">
+          </div>
+
+          <div class="form-group">
+            <label style="font-weight: 700; color: var(--navy-primary);">Fase de Recuperación:</label>
+            <select id="injuryPhase" class="form-control" style="font-weight: 600;">
+              <option value="Fase 1: Reposo / Fisioterapia">Fase 1: Reposo / Fisioterapia</option>
+              <option value="Fase 2: Readaptación en Campo">Fase 2: Readaptación en Campo</option>
+              <option value="Fase 3: Parcial con Grupo">Fase 3: Parcial con Grupo</option>
+              <option value="Fase 4: Alta Médica / Competición">Fase 4: Alta Médica / Competición</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+        <button id="btnRecoverPlayer" class="btn btn-secondary" style="color: #16a34a; border-color: #86efac; display: none;" onclick="submitRecoverPlayer()">✅ Dar Alta Médica</button>
+        <div style="display: flex; gap: 0.5rem; margin-left: auto;">
+          <button class="btn btn-secondary" onclick="closeInjuryModal()">Cancelar</button>
+          <button class="btn btn-primary" style="background-color: #dc2626;" onclick="submitSaveInjury()">💾 Guardar Lesión</button>
+        </div>
       </div>
     </div>
   </div>

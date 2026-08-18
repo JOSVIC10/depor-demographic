@@ -54,6 +54,9 @@ def init_db():
         ("goals", "INTEGER DEFAULT 0"),
         ("seasons_data", "TEXT"),
         ("is_injured", "INTEGER DEFAULT 0"),
+        ("injury_description", "TEXT DEFAULT ''"),
+        ("injury_return_time", "TEXT DEFAULT ''"),
+        ("injury_phase", "TEXT DEFAULT ''"),
         ("extra_pitch_team_id", "TEXT")
     ]
     for col_name, col_type in new_cols:
@@ -74,6 +77,8 @@ def init_db():
         away_goals INTEGER NOT NULL,
         is_home INTEGER NOT NULL,
         competition TEXT NOT NULL,
+        match_type TEXT DEFAULT 'LIGA',
+        matchday TEXT DEFAULT '',
         custom_title TEXT,
         playing_time TEXT DEFAULT '90 Minutes',
         substitute_cadence TEXT DEFAULT '',
@@ -85,14 +90,20 @@ def init_db():
     # Check if columns exist in matches (in case old table exists)
     cursor.execute("PRAGMA table_info(matches)")
     existing_cols = [c[1] for c in cursor.fetchall()]
-    if "custom_title" not in existing_cols:
-        try:
-            cursor.execute("ALTER TABLE matches ADD COLUMN custom_title TEXT")
-            cursor.execute("ALTER TABLE matches ADD COLUMN playing_time TEXT DEFAULT '90 Minutes'")
-            cursor.execute("ALTER TABLE matches ADD COLUMN substitute_cadence TEXT DEFAULT ''")
-            cursor.execute("ALTER TABLE matches ADD COLUMN substitution_times TEXT DEFAULT '[]'")
-        except Exception:
-            pass
+    m_new_cols = [
+        ("custom_title", "TEXT"),
+        ("playing_time", "TEXT DEFAULT '90 Minutes'"),
+        ("substitute_cadence", "TEXT DEFAULT ''"),
+        ("substitution_times", "TEXT DEFAULT '[]'"),
+        ("match_type", "TEXT DEFAULT 'LIGA'"),
+        ("matchday", "TEXT DEFAULT ''")
+    ]
+    for col_name, col_type in m_new_cols:
+        if col_name not in existing_cols:
+            try:
+                cursor.execute(f"ALTER TABLE matches ADD COLUMN {col_name} {col_type}")
+            except Exception:
+                pass
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS lineup_entries (
@@ -242,8 +253,22 @@ def toggle_injured_status(player_id: str):
     row = cursor.fetchone()
     if row:
         new_val = 0 if row['is_injured'] == 1 else 1
-        cursor.execute("UPDATE players SET is_injured = ? WHERE id = ?", (new_val, player_id))
+        if new_val == 0:
+            cursor.execute("UPDATE players SET is_injured = 0, injury_description = '', injury_return_time = '', injury_phase = '' WHERE id = ?", (player_id,))
+        else:
+            cursor.execute("UPDATE players SET is_injured = 1 WHERE id = ?", (player_id,))
         conn.commit()
+    conn.close()
+
+def set_player_injury(player_id: str, is_injured: bool, injury_description: str = "", injury_return_time: str = "", injury_phase: str = ""):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    UPDATE players 
+    SET is_injured = ?, injury_description = ?, injury_return_time = ?, injury_phase = ?
+    WHERE id = ?
+    """, (1 if is_injured else 0, injury_description or "", injury_return_time or "", injury_phase or "", player_id))
+    conn.commit()
     conn.close()
 
 def update_team_pitch_positions(positions: List[Dict]):
@@ -516,27 +541,27 @@ def initialize_default_match_lineup(match_id: str, team_id: str):
     conn.commit()
     conn.close()
 
-def create_match(team_id: str, opponent: str, date: str, result_type: str, home_goals: int, away_goals: int, is_home: bool, competition: str, match_id: Optional[str] = None, custom_title: Optional[str] = None, playing_time: str = "90 Minutes", substitute_cadence: str = "", substitution_times: Optional[List[str]] = None) -> Match:
+def create_match(team_id: str, opponent: str, date: str, result_type: str, home_goals: int, away_goals: int, is_home: bool, competition: str = "LALIGA HYPERMOTION", match_id: Optional[str] = None, custom_title: Optional[str] = None, playing_time: str = "90 Minutes", substitute_cadence: str = "", substitution_times: Optional[List[str]] = None, match_type: str = "LIGA", matchday: str = "") -> Match:
     m_id = match_id or str(uuid.uuid4())[:8]
     sub_times_json = json.dumps(substitution_times or [])
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-    INSERT OR REPLACE INTO matches (id, team_id, opponent, date, result_type, home_goals, away_goals, is_home, competition, custom_title, playing_time, substitute_cadence, substitution_times)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (m_id, team_id, opponent, date, result_type, home_goals, away_goals, 1 if is_home else 0, competition, custom_title, playing_time, substitute_cadence, sub_times_json))
+    INSERT OR REPLACE INTO matches (id, team_id, opponent, date, result_type, home_goals, away_goals, is_home, competition, match_type, matchday, custom_title, playing_time, substitute_cadence, substitution_times)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (m_id, team_id, opponent, date, result_type, home_goals, away_goals, 1 if is_home else 0, competition, match_type, matchday, custom_title, playing_time, substitute_cadence, sub_times_json))
     conn.commit()
     conn.close()
     
     # Auto-initialize starting 11 and substitutes for the match
     initialize_default_match_lineup(m_id, team_id)
     
-    return Match(id=m_id, team_id=team_id, opponent=opponent, date=date, result_type=result_type, home_goals=home_goals, away_goals=away_goals, is_home=is_home, competition=competition, custom_title=custom_title, playing_time=playing_time, substitute_cadence=substitute_cadence, substitution_times=substitution_times or [])
+    return Match(id=m_id, team_id=team_id, opponent=opponent, date=date, result_type=result_type, home_goals=home_goals, away_goals=away_goals, is_home=is_home, competition=competition, match_type=match_type, matchday=matchday, custom_title=custom_title, playing_time=playing_time, substitute_cadence=substitute_cadence, substitution_times=substitution_times or [])
 
 def get_matches_by_team(team_id: str) -> List[Match]:
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM matches WHERE team_id = ?", (team_id,))
+    cursor.execute("SELECT * FROM matches WHERE team_id = ? ORDER BY date ASC, id ASC", (team_id,))
     rows = cursor.fetchall()
     conn.close()
     res = []
@@ -550,6 +575,10 @@ def get_matches_by_team(team_id: str) -> List[Match]:
                 d['substitution_times'] = []
         else:
             d['substitution_times'] = []
+        if 'match_type' not in d or not d['match_type']:
+            d['match_type'] = 'LIGA' if 'LALIGA' in str(d.get('competition', '')).upper() else 'AMISTOSO'
+        if 'matchday' not in d:
+            d['matchday'] = ''
         res.append(Match(**d))
     return res
 
@@ -611,18 +640,20 @@ def update_match_details(match_id: str, data: Dict) -> Optional[Match]:
         
     d = dict(row)
     for k, v in data.items():
-        if k in ['opponent', 'date', 'result_type', 'home_goals', 'away_goals', 'competition', 'custom_title', 'playing_time', 'substitute_cadence']:
+        if k in ['opponent', 'date', 'result_type', 'home_goals', 'away_goals', 'competition', 'match_type', 'matchday', 'custom_title', 'playing_time', 'substitute_cadence']:
             d[k] = v
         elif k == 'is_home':
             d['is_home'] = 1 if v else 0
 
     cursor.execute("""
     UPDATE matches
-    SET opponent = ?, date = ?, result_type = ?, home_goals = ?, away_goals = ?, is_home = ?, competition = ?, custom_title = ?, playing_time = ?, substitute_cadence = ?
+    SET opponent = ?, date = ?, result_type = ?, home_goals = ?, away_goals = ?, is_home = ?, competition = ?, match_type = ?, matchday = ?, custom_title = ?, playing_time = ?, substitute_cadence = ?
     WHERE id = ?
     """, (
         d['opponent'], d['date'], d['result_type'], d['home_goals'], d['away_goals'],
-        1 if d['is_home'] else 0, d['competition'], d.get('custom_title'),
+        1 if d['is_home'] else 0, d.get('competition', 'LALIGA HYPERMOTION'),
+        d.get('match_type', 'LIGA'), d.get('matchday', ''),
+        d.get('custom_title'),
         d.get('playing_time', '90 Minutes'), d.get('substitute_cadence', ''), match_id
     ))
     conn.commit()

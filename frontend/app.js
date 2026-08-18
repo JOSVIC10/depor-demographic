@@ -55,11 +55,80 @@ async function loadTeams() {
 async function switchTeam(teamId) {
   currentTeamId = teamId;
   await loadTeamData();
+
+  // Immediately re-render whichever tab is currently displayed
+  const activeTab = document.querySelector('.tab-content.active');
+  if (activeTab) {
+    const tabName = activeTab.id.replace('tab-', '');
+    if (tabName === 'preview') {
+      await renderLivePreviews();
+    } else if (tabName === 'plantilla') {
+      renderPlayersTable();
+    } else if (tabName === 'partidos') {
+      if (currentMatchId) {
+        await loadMatchTactics(currentMatchId);
+      }
+    } else if (tabName === 'exportar') {
+      renderExportMatchesChecklist();
+    }
+  }
 }
 
 async function loadTeamData() {
   await Promise.all([loadPlayers(), loadMatches()]);
   renderExportMatchesChecklist();
+}
+
+// Players State & Filters
+let playerSearchQuery = "";
+let playerSelectedCategory = "";
+let playerSortField = "name";
+let playerSortDir = "asc";
+
+function formatDateDDMMYYYY(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") return "-";
+  const str = dateStr.trim();
+  if (!str) return "-";
+
+  // Check YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (ymdMatch) {
+    const [, y, m, d] = ymdMatch;
+    return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`;
+  }
+
+  // Check DD-MM-YYYY or DD/MM/YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    const [, d, m, y] = dmyMatch;
+    return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`;
+  }
+
+  // Date object fallback
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  return str;
+}
+
+function parseDateForSort(dateStr) {
+  if (!dateStr) return 0;
+  const str = String(dateStr).trim();
+  const ymdMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (ymdMatch) {
+    return new Date(`${ymdMatch[1]}-${ymdMatch[2].padStart(2, '0')}-${ymdMatch[3].padStart(2, '0')}`).getTime() || 0;
+  }
+  const dmyMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    return new Date(`${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`).getTime() || 0;
+  }
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
 }
 
 // Players Management
@@ -68,8 +137,6 @@ async function loadPlayers() {
     const res = await fetch(`${API_BASE}/teams/${currentTeamId}/players`);
     currentPlayers = await res.json();
     renderPlayersTable();
-    const badge = document.getElementById("playerCountBadge");
-    if (badge) badge.innerText = `${currentPlayers.length} Jugadores`;
   } catch (err) {
     console.error("Error loading players:", err);
   }
@@ -78,64 +145,240 @@ async function loadPlayers() {
 function renderPlayersTable() {
   const tbody = document.getElementById("playersTableBody");
   if (!tbody) return;
-  tbody.innerHTML = currentPlayers.map(p => {
-    const avatarHtml = p.photo_url 
-      ? `<img src="${p.photo_url}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--navy-primary); box-shadow: 0 2px 4px rgba(0,0,0,0.12); cursor: pointer;" onclick="openPlayerCardModal('${p.id}')" title="Haz clic para ver la Ficha / Pasaporte del Jugador">`
-      : `<div style="width: 40px; height: 40px; border-radius: 50%; background: #002060; color: white; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; border: 2px solid #002060; cursor: pointer;" onclick="openPlayerCardModal('${p.id}')" title="Haz clic para ver la Ficha / Pasaporte del Jugador">👤</div>`;
 
-    const metricsHtml = `
-      <div style="font-size: 0.8rem; color: #1e293b; line-height: 1.3;">
-        <span style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-weight: 700; color: #002060; font-size: 0.75rem;">26/27</span>
-        <span style="margin-left: 4px;"><strong>${p.minutes_played || 0}'</strong> min | <strong>${p.starts || 0}</strong> part</span>
-      </div>
-    `;
+  // 1. Filter players
+  const q = playerSearchQuery.toLowerCase().trim();
+  const catFilter = playerSelectedCategory.toUpperCase().trim();
 
-    return `
+  let filtered = currentPlayers.filter(p => {
+    // Category match
+    if (catFilter) {
+      const pCat = (p.derived_category || "").toUpperCase();
+      if (!pCat.includes(catFilter)) return false;
+    }
+
+    // Text search match
+    if (q) {
+      const name = (p.name || "").toLowerCase();
+      const pos = (p.detailed_position || "").toLowerCase();
+      const cat = (p.derived_category || "").toLowerCase();
+      const age = String(p.age || "").toLowerCase();
+      const birthFormatted = formatDateDDMMYYYY(p.birthdate).toLowerCase();
+      const birthRaw = (p.birthdate || "").toLowerCase();
+
+      const matches = name.includes(q) || 
+                      pos.includes(q) || 
+                      cat.includes(q) || 
+                      age.includes(q) || 
+                      birthFormatted.includes(q) || 
+                      birthRaw.includes(q);
+      if (!matches) return false;
+    }
+
+    return true;
+  });
+
+  // 2. Sort players
+  filtered.sort((a, b) => {
+    let diff = 0;
+    switch (playerSortField) {
+      case "name":
+        diff = (a.name || "").localeCompare(b.name || "", 'es', { sensitivity: 'base' });
+        break;
+      case "birthdate":
+        diff = parseDateForSort(a.birthdate) - parseDateForSort(b.birthdate);
+        break;
+      case "age":
+        diff = (a.age || 0) - (b.age || 0);
+        break;
+      case "detailed_position":
+      case "position":
+        diff = (a.detailed_position || "").localeCompare(b.detailed_position || "", 'es');
+        break;
+      case "derived_category":
+        diff = (a.derived_category || "").localeCompare(b.derived_category || "", 'es');
+        break;
+      case "minutes_played":
+      case "minutes":
+        diff = (a.minutes_played || 0) - (b.minutes_played || 0);
+        break;
+      case "starts":
+        diff = (a.starts || 0) - (b.starts || 0);
+        break;
+      case "goals":
+        diff = (a.goals || 0) - (b.goals || 0);
+        break;
+      default:
+        diff = (a.name || "").localeCompare(b.name || "", 'es');
+    }
+    return playerSortDir === "desc" ? -diff : diff;
+  });
+
+  // 3. Render HTML
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
       <tr>
-        <td style="vertical-align: middle; width: 50px;">${avatarHtml}</td>
-        <td style="font-weight: 700; color: var(--navy-primary); vertical-align: middle; cursor: pointer;" onclick="openPlayerCardModal('${p.id}')">${p.name}</td>
-        <td style="vertical-align: middle;">${p.birthdate}</td>
-        <td style="vertical-align: middle;"><strong>${p.age}</strong></td>
-        <td style="vertical-align: middle;">${p.detailed_position}</td>
-        <td style="vertical-align: middle;"><span class="badge badge-position">${p.derived_category}</span></td>
-        <td style="vertical-align: middle;">${metricsHtml}</td>
-        <td style="text-align: right; vertical-align: middle; white-space: nowrap;">
-          <button class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.78rem; margin-right: 4px;" onclick="openPlayerCardModal('${p.id}')">📋 Pasaporte</button>
-          <button class="btn btn-danger" style="padding: 0.3rem 0.6rem; font-size: 0.78rem;" onclick="deletePlayer('${p.id}')">🗑️</button>
+        <td colspan="8" style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); font-size: 0.95rem;">
+          🔍 No se encontraron jugadores que coincidan con la búsqueda o filtro seleccionado.
+          <br>
+          <button class="btn btn-secondary" style="margin-top: 0.75rem; font-size: 0.8rem;" onclick="resetPlayersFilters()">Restablecer filtros</button>
         </td>
       </tr>
     `;
-  }).join("");
-  applyPlayersFilter();
+  } else {
+    tbody.innerHTML = filtered.map(p => {
+      const avatarHtml = p.photo_url 
+        ? `<img src="${p.photo_url}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--navy-primary); box-shadow: 0 2px 4px rgba(0,0,0,0.12); cursor: pointer;" onclick="openPlayerCardModal('${p.id}')" title="Haz clic para ver la Ficha / Pasaporte del Jugador">`
+        : `<div style="width: 40px; height: 40px; border-radius: 50%; background: #002060; color: white; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; border: 2px solid #002060; cursor: pointer;" onclick="openPlayerCardModal('${p.id}')" title="Haz clic para ver la Ficha / Pasaporte del Jugador">👤</div>`;
+
+      const metricsHtml = `
+        <div style="font-size: 0.8rem; color: #1e293b; line-height: 1.3;">
+          <span style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-weight: 700; color: #002060; font-size: 0.75rem;">26/27</span>
+          <span style="margin-left: 4px;"><strong>${p.minutes_played || 0}'</strong> min | <strong>${p.starts || 0}</strong> part | <strong>${p.goals || 0}</strong> gol${(p.goals || 0) === 1 ? '' : 'es'}</span>
+        </div>
+      `;
+
+      return `
+        <tr>
+          <td style="vertical-align: middle; width: 50px;">${avatarHtml}</td>
+          <td style="font-weight: 700; color: var(--navy-primary); vertical-align: middle; cursor: pointer;" onclick="openPlayerCardModal('${p.id}')">${p.name}</td>
+          <td style="vertical-align: middle;">${formatDateDDMMYYYY(p.birthdate)}</td>
+          <td style="vertical-align: middle;"><strong>${p.age}</strong></td>
+          <td style="vertical-align: middle;">${p.detailed_position}</td>
+          <td style="vertical-align: middle;"><span class="badge badge-position">${p.derived_category}</span></td>
+          <td style="vertical-align: middle;">${metricsHtml}</td>
+          <td style="text-align: right; vertical-align: middle; white-space: nowrap;">
+            <button class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.78rem; margin-right: 4px;" onclick="openPlayerCardModal('${p.id}')">📋 Pasaporte</button>
+            <button class="btn btn-danger" style="padding: 0.3rem 0.6rem; font-size: 0.78rem;" onclick="deletePlayer('${p.id}')">🗑️</button>
+          </td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  // 4. Update badges & UI controls
+  updatePlayersFilterUI(filtered.length, currentPlayers.length);
 }
 
-function applyPlayersFilter() {
-  const filterName = (document.getElementById("filterName")?.value || "").toLowerCase();
-  const filterAge = (document.getElementById("filterAge")?.value || "").toLowerCase();
-  const filterPos = (document.getElementById("filterPos")?.value || "").toLowerCase();
-  const filterCat = (document.getElementById("filterCat")?.value || "").toLowerCase();
+function updatePlayersFilterUI(filteredCount, totalCount) {
+  const badge = document.getElementById("playerCountBadge");
+  if (badge) badge.innerText = `${totalCount} Jugadores`;
 
-  const tbody = document.getElementById("playersTableBody");
-  if (!tbody) return;
-  const trs = tbody.getElementsByTagName("tr");
+  const filteredBadge = document.getElementById("playerFilteredCount");
+  if (filteredBadge) {
+    filteredBadge.innerText = `${filteredCount} de ${totalCount}`;
+    filteredBadge.style.color = filteredCount < totalCount ? "var(--navy-primary)" : "#475569";
+    filteredBadge.style.fontWeight = filteredCount < totalCount ? "700" : "600";
+    filteredBadge.style.background = filteredCount < totalCount ? "var(--pale-green)" : "#e2e8f0";
+  }
 
-  for (let i = 0; i < trs.length; i++) {
-    const tdName = trs[i].getElementsByTagName("td")[1]?.textContent.toLowerCase() || "";
-    const tdAge = trs[i].getElementsByTagName("td")[3]?.textContent.toLowerCase() || "";
-    const tdPos = trs[i].getElementsByTagName("td")[4]?.textContent.toLowerCase() || "";
-    const tdCat = trs[i].getElementsByTagName("td")[5]?.textContent.toLowerCase() || "";
+  const clearBtn = document.getElementById("playerSearchClearBtn");
+  if (clearBtn) {
+    clearBtn.style.display = playerSearchQuery ? "block" : "none";
+  }
 
-    if (
-      tdName.includes(filterName) &&
-      tdAge.includes(filterAge) &&
-      tdPos.includes(filterPos) &&
-      tdCat.includes(filterCat)
-    ) {
-      trs[i].style.display = "";
+  const dirIcon = document.getElementById("sortDirIcon");
+  const dirLabel = document.getElementById("sortDirLabel");
+  if (dirIcon && dirLabel) {
+    if (playerSortDir === "asc") {
+      dirIcon.innerText = "⬆️";
+      dirLabel.innerText = "Asc";
     } else {
-      trs[i].style.display = "none";
+      dirIcon.innerText = "⬇️";
+      dirLabel.innerText = "Desc";
     }
   }
+
+  // Update header sort indicators & active classes
+  const columns = ["name", "birthdate", "age", "detailed_position", "derived_category", "minutes_played"];
+  columns.forEach(col => {
+    const th = document.getElementById(`th-${col}`);
+    const icon = document.getElementById(`sort-icon-${col}`);
+    if (th && icon) {
+      if (playerSortField === col || (col === 'detailed_position' && playerSortField === 'position') || (col === 'minutes_played' && (playerSortField === 'minutes' || playerSortField === 'starts' || playerSortField === 'goals'))) {
+        th.classList.add("active-sort");
+        icon.innerText = playerSortDir === "asc" ? "▲" : "▼";
+      } else {
+        th.classList.remove("active-sort");
+        icon.innerText = "↕";
+      }
+    }
+  });
+}
+
+function handlePlayerSearch(val) {
+  playerSearchQuery = val;
+  renderPlayersTable();
+}
+
+function clearPlayerSearch() {
+  const input = document.getElementById("playerSearchInput");
+  if (input) input.value = "";
+  playerSearchQuery = "";
+  renderPlayersTable();
+}
+
+function handleCategoryFilter(val) {
+  playerSelectedCategory = val;
+  renderPlayersTable();
+}
+
+function handleSortSelect(val) {
+  const parts = val.split("_");
+  const dir = parts.pop();
+  const field = parts.join("_");
+  playerSortField = field;
+  playerSortDir = dir || "asc";
+  renderPlayersTable();
+}
+
+function toggleSortDirection() {
+  playerSortDir = playerSortDir === "asc" ? "desc" : "asc";
+  syncSortSelectValue();
+  renderPlayersTable();
+}
+
+function sortByColumn(col) {
+  if (playerSortField === col) {
+    playerSortDir = playerSortDir === "asc" ? "desc" : "asc";
+  } else {
+    playerSortField = col;
+    if (col === "minutes_played" || col === "starts" || col === "goals") {
+      playerSortDir = "desc";
+    } else {
+      playerSortDir = "asc";
+    }
+  }
+  syncSortSelectValue();
+  renderPlayersTable();
+}
+
+function syncSortSelectValue() {
+  const select = document.getElementById("playerSortSelect");
+  if (!select) return;
+  const candidate = `${playerSortField}_${playerSortDir}`;
+  const exists = Array.from(select.options).some(o => o.value === candidate);
+  if (exists) {
+    select.value = candidate;
+  }
+}
+
+function resetPlayersFilters() {
+  playerSearchQuery = "";
+  playerSelectedCategory = "";
+  playerSortField = "name";
+  playerSortDir = "asc";
+
+  const searchInput = document.getElementById("playerSearchInput");
+  if (searchInput) searchInput.value = "";
+
+  const catFilter = document.getElementById("playerCatFilter");
+  if (catFilter) catFilter.value = "";
+
+  const sortSelect = document.getElementById("playerSortSelect");
+  if (sortSelect) sortSelect.value = "name_asc";
+
+  renderPlayersTable();
 }
 
 function openPlayerCardModal(playerId) {
@@ -145,7 +388,7 @@ function openPlayerCardModal(playerId) {
   document.getElementById("cardPlayerName").innerText = p.name;
   document.getElementById("cardPlayerPos").innerText = p.detailed_position;
   document.getElementById("cardPlayerAge").innerText = `${p.age} años`;
-  document.getElementById("cardPlayerBirth").innerText = p.birthdate;
+  document.getElementById("cardPlayerBirth").innerText = formatDateDDMMYYYY(p.birthdate);
   document.getElementById("cardStatMins").innerText = `${p.minutes_played || 0}'`;
   document.getElementById("cardStatApps").innerText = p.starts || 0;
   document.getElementById("cardStatGoals").innerText = p.goals || 0;
@@ -359,11 +602,98 @@ async function uploadCSVFile(file) {
   }
 }
 
+// BeSoccer Player Import
+function openImportPlayerBeSoccerModal() {
+  const urlInput = document.getElementById("importPlayerBeSoccerUrl");
+  if (urlInput) urlInput.value = "";
+  const st = document.getElementById("importPlayerBeSoccerStatus");
+  if (st) { st.style.display = "none"; st.innerText = ""; }
+  document.getElementById("importPlayerBeSoccerModal").classList.add("active");
+}
+
+function closeImportPlayerBeSoccerModal() {
+  document.getElementById("importPlayerBeSoccerModal").classList.remove("active");
+}
+
+async function submitImportPlayerBeSoccer() {
+  const urlInput = document.getElementById("importPlayerBeSoccerUrl");
+  const url = (urlInput?.value || "").trim();
+  const statusDiv = document.getElementById("importPlayerBeSoccerStatus");
+  const submitBtn = document.getElementById("btnSubmitImportBeSoccerPlayer");
+  
+  if (!url) {
+    alert("Por favor introduce el enlace de BeSoccer");
+    return;
+  }
+  
+  if (statusDiv) {
+    statusDiv.style.display = "block";
+    statusDiv.style.background = "#e0f2fe";
+    statusDiv.style.color = "#0369a1";
+    statusDiv.innerText = "⏳ Descargando datos y fotografía de BeSoccer...";
+  }
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    const res = await fetch(`${API_BASE}/teams/${currentTeamId}/players/import-besoccer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Error al importar jugador");
+    }
+
+    const created = await res.json();
+    if (statusDiv) {
+      statusDiv.style.background = "#dcfce7";
+      statusDiv.style.color = "#15803d";
+      statusDiv.innerText = `✓ ¡Jugador ${created.name} importado con éxito!`;
+    }
+    await loadPlayers();
+    setTimeout(() => {
+      closeImportPlayerBeSoccerModal();
+      if (submitBtn) submitBtn.disabled = false;
+    }, 1200);
+  } catch (err) {
+    if (statusDiv) {
+      statusDiv.style.background = "#fee2e2";
+      statusDiv.style.color = "#b91c1c";
+      statusDiv.innerText = `✕ Error: ${err.message}`;
+    }
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
 // Match Management (Add, Edit, Delete)
+function onMatchCompetitionTypeChange(mode) {
+  const compSelect = document.getElementById(mode === 'new' ? 'newMatchCompetitionType' : 'editMatchCompetitionType');
+  const compInput = document.getElementById(mode === 'new' ? 'newMatchCompetition' : 'editMatchCompetition');
+  const dayInput = document.getElementById(mode === 'new' ? 'newMatchDay' : 'editMatchDay');
+  if (!compSelect || !compInput) return;
+  const val = compSelect.value;
+  if (val === 'LIGA') {
+    if (!compInput.value || compInput.value === 'AMISTOSO' || compInput.value === 'COPA DEL REY') {
+      compInput.value = 'LALIGA HYPERMOTION';
+    }
+    if (dayInput && !dayInput.value) dayInput.value = 'Jornada 1';
+  } else if (val === 'AMISTOSO') {
+    compInput.value = 'AMISTOSO';
+    if (dayInput) dayInput.value = '';
+  } else if (val === 'COPA') {
+    compInput.value = 'COPA DEL REY';
+    if (dayInput && !dayInput.value) dayInput.value = '1ª Ronda';
+  }
+}
+
 function openAddMatchModal() {
   document.getElementById("newMatchOpponent").value = "";
   document.getElementById("newMatchDate").value = new Date().toISOString().split("T")[0];
+  document.getElementById("newMatchCompetitionType").value = "LIGA";
   document.getElementById("newMatchCompetition").value = "LALIGA HYPERMOTION";
+  document.getElementById("newMatchDay").value = "Jornada 1";
   document.getElementById("newMatchIsHome").value = "true";
   document.getElementById("newMatchResultType").value = "WIN";
   document.getElementById("newMatchHomeGoals").value = "2";
@@ -385,7 +715,9 @@ async function submitAddMatch() {
   }
 
   const date = document.getElementById("newMatchDate").value || new Date().toISOString().split("T")[0];
-  const competition = document.getElementById("newMatchCompetition").value.trim() || "LALIGA HYPERMOTION";
+  const match_type = document.getElementById("newMatchCompetitionType").value || "LIGA";
+  const competition = document.getElementById("newMatchCompetition").value.trim() || (match_type === "LIGA" ? "LALIGA HYPERMOTION" : "AMISTOSO");
+  const matchday = document.getElementById("newMatchDay").value.trim();
   const is_home = document.getElementById("newMatchIsHome").value === "true";
   const result_type = document.getElementById("newMatchResultType").value;
   const home_goals = parseInt(document.getElementById("newMatchHomeGoals").value) || 0;
@@ -397,7 +729,9 @@ async function submitAddMatch() {
     team_id: currentTeamId,
     opponent: opponent,
     date: date,
+    match_type: match_type,
     competition: competition,
+    matchday: matchday,
     is_home: is_home,
     result_type: result_type,
     home_goals: home_goals,
@@ -447,7 +781,9 @@ function openEditMatchModal() {
   const m = currentMatchDetails.match;
   document.getElementById("editMatchOpponent").value = m.opponent || "";
   document.getElementById("editMatchDate").value = m.date || "";
+  document.getElementById("editMatchCompetitionType").value = m.match_type || (m.competition && m.competition.toUpperCase().includes("LALIGA") ? "LIGA" : "AMISTOSO");
   document.getElementById("editMatchCompetition").value = m.competition || "LALIGA HYPERMOTION";
+  document.getElementById("editMatchDay").value = m.matchday || "";
   document.getElementById("editMatchIsHome").value = m.is_home ? "true" : "false";
   document.getElementById("editMatchResultType").value = m.result_type || "WIN";
   document.getElementById("editMatchHomeGoals").value = m.home_goals || 0;
@@ -472,7 +808,9 @@ async function submitEditMatch() {
   const payload = {
     opponent: opponent,
     date: document.getElementById("editMatchDate").value,
+    match_type: document.getElementById("editMatchCompetitionType").value,
     competition: document.getElementById("editMatchCompetition").value.trim(),
+    matchday: document.getElementById("editMatchDay").value.trim(),
     is_home: document.getElementById("editMatchIsHome").value === "true",
     result_type: document.getElementById("editMatchResultType").value,
     home_goals: parseInt(document.getElementById("editMatchHomeGoals").value) || 0,
@@ -901,6 +1239,25 @@ async function submitSaveLineup() {
   }
 }
 
+// Format match labels with date, typology, jornada and score
+function formatMatchLabel(m) {
+  const dateStr = formatDateDDMMYYYY(m.date);
+  let tipoStr = "";
+  if (m.match_type === "LIGA" || (!m.match_type && m.competition && m.competition.toUpperCase().includes("LALIGA"))) {
+    tipoStr = m.matchday ? `LIGA (${m.matchday})` : "LIGA";
+  } else if (m.match_type === "COPA") {
+    tipoStr = m.matchday ? `COPA (${m.matchday})` : "COPA";
+  } else if (m.match_type === "AMISTOSO" || (!m.match_type && m.competition && m.competition.toUpperCase().includes("FRIENDLY"))) {
+    tipoStr = "AMISTOSO";
+  } else {
+    tipoStr = m.match_type || m.competition || "PARTIDO";
+    if (m.matchday) tipoStr += ` (${m.matchday})`;
+  }
+  const resultShort = m.result_type === "WIN" ? "V" : (m.result_type === "DRAW" ? "E" : "D");
+  const score = `${m.home_goals}-${m.away_goals}`;
+  return `📅 ${dateStr} | 🏆 ${tipoStr} | ${m.opponent} (${resultShort} ${score})`;
+}
+
 // Matches & Tactics
 async function loadMatches() {
   try {
@@ -922,7 +1279,7 @@ async function loadMatches() {
       return;
     }
 
-    select.innerHTML = currentMatches.map(m => `<option value="${m.id}">${m.opponent} (${m.result_type} ${m.home_goals}-${m.away_goals})</option>`).join("");
+    select.innerHTML = currentMatches.map(m => `<option value="${m.id}">${formatMatchLabel(m)}</option>`).join("");
     
     if (!currentMatchId || !currentMatches.some(m => m.id === currentMatchId)) {
       currentMatchId = currentMatches[0].id;
@@ -958,11 +1315,23 @@ function renderMatchQuickSummary() {
   const m = currentMatchDetails.match;
   const resultClass = m.result_type === "WIN" ? "badge-success" : (m.result_type === "DRAW" ? "badge-warning" : "badge-danger");
   const resultText = m.result_type === "WIN" ? "Victoria" : (m.result_type === "DRAW" ? "Empate" : "Derrota");
+  const dateFormatted = formatDateDDMMYYYY(m.date);
+  
+  let typeBadge = "";
+  if (m.match_type === "LIGA" || (!m.match_type && m.competition && m.competition.toUpperCase().includes("LALIGA"))) {
+    typeBadge = `🏆 LIGA ${m.matchday ? '• ' + m.matchday : ''}`;
+  } else if (m.match_type === "COPA") {
+    typeBadge = `🏆 COPA ${m.matchday ? '• ' + m.matchday : ''}`;
+  } else if (m.match_type === "AMISTOSO" || (!m.match_type && m.competition && m.competition.toUpperCase().includes("FRIENDLY"))) {
+    typeBadge = `⚽ AMISTOSO`;
+  } else {
+    typeBadge = `🏆 ${m.match_type || m.competition} ${m.matchday ? '• ' + m.matchday : ''}`;
+  }
 
   container.innerHTML = `
     <span class="badge ${resultClass}" style="font-weight: 700;">${resultText} ${m.home_goals} - ${m.away_goals}</span>
-    <span class="badge" style="background: #e2e8f0; color: var(--navy-primary); font-weight: 600;">📅 ${m.date}</span>
-    <span class="badge" style="background: #e2e8f0; color: var(--navy-primary); font-weight: 600;">🏆 ${m.competition}</span>
+    <span class="badge" style="background: #e2e8f0; color: var(--navy-primary); font-weight: 700;">📅 ${dateFormatted}</span>
+    <span class="badge" style="background: var(--peach-accent); color: var(--navy-primary); font-weight: 700; border: 1px solid var(--peach-border);">${typeBadge}</span>
     <span class="badge" style="background: #e2e8f0; color: var(--navy-primary); font-weight: 600;">⏱️ ${m.playing_time || '90 Min'}</span>
   `;
 }
@@ -1603,7 +1972,7 @@ async function renderLivePreviews() {
     const dataB = await resB.json();
     document.getElementById("prevTitleB").innerText = `${dataB.team.name}`;
     document.getElementById("prevKpiB").innerText = `NUMERO DE JUGADORES: ${dataB.boxes.length} JUGADORES`;
-    renderSquadPitchPreview(dataB.boxes);
+    renderSquadPitchPreview(dataB.boxes, dataB.all_pitch_players || []);
     renderInjuredPlayers(dataB.injured || []);
     populateGlobalDropdowns();
 
@@ -1707,14 +2076,16 @@ function renderDemographicPreviewTable(players) {
   table.innerHTML = html;
 }
 
-function renderSquadPitchPreview(boxes) {
+function renderSquadPitchPreview(boxes, allPitchPlayers = []) {
   const container = document.getElementById("prevPitchBContainer");
   if (!container) return;
   container.innerHTML = `
     <div style="display: flex; justify-content: center; width: 100%; padding: 10px 0;">
       <div class="pitch-svg-canvas wide-slide-pitch" id="squadPitchCanvas">
         ${boxes.map(b => {
-          const pObj = currentPlayers.find(x => x.id === b.id);
+          const pObj = (allPitchPlayers && allPitchPlayers.find(x => x.id === b.id)) ||
+                       currentPlayers.find(x => x.id === b.id) ||
+                       allGlobalPlayersCache.find(x => x.id === b.id);
           const photoContent = (pObj && pObj.photo_url) 
             ? `<img src="${pObj.photo_url}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`
             : `<span style="font-size: 1rem; color: white;">👤</span>`;
@@ -1932,9 +2303,16 @@ async function importMatchFromUrl() {
 function renderExportMatchesChecklist() {
   const container = document.getElementById("exportMatchesChecklist");
   if (!container) return;
+  if (!currentMatches || currentMatches.length === 0) {
+    container.innerHTML = `<span style="color: var(--text-muted); font-size: 0.85rem;">No hay partidos creados para este equipo.</span>`;
+    return;
+  }
   container.innerHTML = currentMatches.map(m => `
     <div style="margin-bottom: 6px;">
-      <label><input type="checkbox" value="${m.id}" checked> ${m.opponent} (${m.result_type} ${m.home_goals}-${m.away_goals})</label>
+      <label style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem; cursor: pointer;">
+        <input type="checkbox" value="${m.id}" checked>
+        <span>${formatMatchLabel(m)}</span>
+      </label>
     </div>
   `).join("");
 }
@@ -1992,6 +2370,7 @@ async function triggerExport(format, allTeams = false) {
 
 // Lesionados and Extra Pitch Players Logic
 let allGlobalPlayersCache = [];
+let currentInjuredPlayersCache = [];
 
 async function populateGlobalDropdowns() {
   try {
@@ -2000,14 +2379,10 @@ async function populateGlobalDropdowns() {
     allGlobalPlayersCache = allPlayers;
     
     const extraSelect = document.getElementById("extraPitchPlayerSelect");
-    const injuredSelect = document.getElementById("injuredPlayerSelect");
-    
-    if (extraSelect && injuredSelect) {
-      // Filter out players already on pitch or injured
+    if (extraSelect) {
       const options = allPlayers.map(p => `<option value="${p.id}">${p.name} (${p.team_id})</option>`);
       const defaultOption = `<option value="">-- Seleccionar --</option>`;
       extraSelect.innerHTML = defaultOption + options.join("");
-      injuredSelect.innerHTML = defaultOption + options.join("");
     }
   } catch(e) {
     console.error("Error fetching all players", e);
@@ -2033,52 +2408,167 @@ async function addExtraPlayerToPitch() {
   }
 }
 
-async function addInjuredPlayer() {
-  const select = document.getElementById("injuredPlayerSelect");
-  const playerId = select.value;
-  if (!playerId) return;
+// Medical & Injury Modal Logic
+function openAddInjuryModal() {
+  const select = document.getElementById("injuryPlayerSelect");
+  if (!select) return;
   
+  const availablePlayers = allGlobalPlayersCache.length > 0 ? allGlobalPlayersCache : currentPlayers;
+  select.innerHTML = availablePlayers.map(p => `<option value="${p.id}">${p.name} (${p.team_id || currentTeamId} - ${p.detailed_position})</option>`).join("");
+  select.disabled = false;
+
+  document.getElementById("injuryModalPlayerId").value = "";
+  document.getElementById("injuryDescription").value = "";
+  document.getElementById("injuryReturnTime").value = "";
+  document.getElementById("injuryPhase").value = "Fase 1: Reposo / Fisioterapia";
+  
+  const recoverBtn = document.getElementById("btnRecoverPlayer");
+  if (recoverBtn) recoverBtn.style.display = "none";
+  
+  document.getElementById("injuryModal").classList.add("active");
+}
+
+function openEditInjuryModal(playerId) {
+  const p = currentInjuredPlayersCache.find(x => x.id === playerId) || allGlobalPlayersCache.find(x => x.id === playerId) || currentPlayers.find(x => x.id === playerId);
+  if (!p) return;
+  
+  const select = document.getElementById("injuryPlayerSelect");
+  if (select) {
+    select.innerHTML = `<option value="${p.id}" selected>${p.name} (${p.team_id || currentTeamId} - ${p.detailed_position})</option>`;
+    select.disabled = true;
+  }
+  
+  document.getElementById("injuryModalPlayerId").value = p.id;
+  document.getElementById("injuryDescription").value = p.injury_description || "";
+  document.getElementById("injuryReturnTime").value = p.injury_return_time || "";
+  document.getElementById("injuryPhase").value = p.injury_phase || "Fase 1: Reposo / Fisioterapia";
+  
+  const recoverBtn = document.getElementById("btnRecoverPlayer");
+  if (recoverBtn) recoverBtn.style.display = "inline-flex";
+  
+  document.getElementById("injuryModal").classList.add("active");
+}
+
+function closeInjuryModal() {
+  document.getElementById("injuryModal").classList.remove("active");
+}
+
+async function submitSaveInjury() {
+  const select = document.getElementById("injuryPlayerSelect");
+  const hiddenId = document.getElementById("injuryModalPlayerId").value;
+  const playerId = hiddenId || (select ? select.value : "");
+  
+  if (!playerId) {
+    alert("Por favor selecciona un jugador.");
+    return;
+  }
+
+  const desc = document.getElementById("injuryDescription").value.trim();
+  const returnTime = document.getElementById("injuryReturnTime").value.trim();
+  const phase = document.getElementById("injuryPhase").value;
+
   try {
     const res = await fetch(`${API_BASE}/players/${playerId}/injured`, {
-      method: "POST"
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        is_injured: true,
+        injury_description: desc,
+        injury_return_time: returnTime,
+        injury_phase: phase
+      })
     });
+
     if (res.ok) {
+      closeInjuryModal();
       await renderLivePreviews();
+    } else {
+      alert("Error al guardar la lesión.");
     }
-  } catch(e) {
-    console.error(e);
+  } catch (err) {
+    console.error("Error saving injury:", err);
+    alert("Error de conexión al registrar la lesión.");
   }
 }
 
-async function removeInjuredPlayer(playerId) {
+async function submitRecoverPlayer() {
+  const hiddenId = document.getElementById("injuryModalPlayerId").value;
+  if (!hiddenId) return;
+  
+  if (!confirm("¿Dar de alta médica a este jugador y reincorporarlo al campo?")) return;
+  
+  try {
+    const res = await fetch(`${API_BASE}/players/${hiddenId}/injured`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_injured: false })
+    });
+    if (res.ok) {
+      closeInjuryModal();
+      await renderLivePreviews();
+    }
+  } catch (err) {
+    console.error("Error recovering player:", err);
+  }
+}
+
+async function recoverPlayerDirect(playerId) {
+  if (!confirm("¿Dar de alta médica a este jugador?")) return;
   try {
     const res = await fetch(`${API_BASE}/players/${playerId}/injured`, {
-      method: "POST"
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_injured: false })
     });
     if (res.ok) {
       await renderLivePreviews();
     }
-  } catch(e) {
-    console.error(e);
+  } catch (err) {
+    console.error("Error recovering player:", err);
   }
 }
 
 function renderInjuredPlayers(injuredPlayers) {
+  currentInjuredPlayersCache = injuredPlayers || [];
   const list = document.getElementById("injuredPlayersList");
   if (!list) return;
   
-  if (injuredPlayers.length === 0) {
-    list.innerHTML = `<div style="color: rgba(255,255,255,0.5); font-size: 0.75rem; font-style: italic;">Sin lesionados registrados.</div>`;
+  if (!injuredPlayers || injuredPlayers.length === 0) {
+    list.innerHTML = `<div style="color: rgba(255,255,255,0.45); font-size: 0.75rem; font-style: italic; text-align: center; padding: 1.5rem 0;">Sin lesionados registrados.</div>`;
     return;
   }
+
+  const phaseColors = {
+    "Fase 1: Reposo / Fisioterapia": "#dc2626",
+    "Fase 2: Readaptación en Campo": "#ea580c",
+    "Fase 3: Parcial con Grupo": "#ca8a04",
+    "Fase 4: Alta Médica / Competición": "#16a34a"
+  };
   
-  list.innerHTML = injuredPlayers.map(p => `
-    <div style="background: rgba(220, 38, 38, 0.15); border: 1px solid rgba(220, 38, 38, 0.3); border-radius: 4px; padding: 4px 6px; display: flex; justify-content: space-between; align-items: center;">
-      <div style="display: flex; align-items: center; gap: 6px;">
-        <span style="font-size: 0.8rem;">🏥</span>
-        <span style="color: white; font-size: 0.75rem; font-weight: 600;">${p.name}</span>
+  list.innerHTML = injuredPlayers.map(p => {
+    const phase = p.injury_phase || "Fase 1: Reposo / Fisioterapia";
+    const phaseBg = phaseColors[phase] || "#dc2626";
+    const desc = p.injury_description || "Diagnóstico no especificado";
+    const time = p.injury_return_time || "Tiempo pendiente";
+
+    return `
+      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.25);">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 4px;">
+          <div style="font-weight: 700; color: white; font-size: 0.8rem; display: flex; align-items: center; gap: 4px;">
+            <span>🩹</span>
+            <span>${p.name}</span>
+          </div>
+          <div style="display: flex; gap: 3px;">
+            <button class="btn btn-secondary" style="padding: 1px 5px; font-size: 0.65rem; background: rgba(255,255,255,0.12); color: white; border: none;" onclick="openEditInjuryModal('${p.id}')" title="Editar detalles de lesión">✏️</button>
+            <button class="btn btn-secondary" style="padding: 1px 5px; font-size: 0.65rem; background: rgba(22, 163, 74, 0.35); color: #86efac; border: none;" onclick="recoverPlayerDirect('${p.id}')" title="Dar alta médica">✅</button>
+          </div>
+        </div>
+        <div style="font-size: 0.72rem; color: #cbd5e1; font-weight: 500; line-height: 1.2;">${desc}</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 3px;">
+          <span class="badge" style="background: ${phaseBg}; color: white; font-size: 0.65rem; padding: 2px 6px; font-weight: 700; border-radius: 3px;">${phase.split(':')[0]}</span>
+          <span style="font-size: 0.7rem; color: #fbbf24; font-weight: 600;">⏳ ${time}</span>
+        </div>
       </div>
-      <button class="btn btn-secondary" style="padding: 1px 4px; font-size: 0.65rem; color: #fca5a5; background: transparent; border: none;" onclick="removeInjuredPlayer('${p.id}')" title="Recuperar jugador">✕</button>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 }

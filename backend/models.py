@@ -67,9 +67,16 @@ def derive_position_category(detailed_position: str) -> str:
     return "Mediocentros"
 
 def calculate_age(birthdate_str: str, ref_date: Optional[str] = None) -> int:
-    try:
-        bdate = datetime.strptime(birthdate_str, "%Y-%m-%d").date()
-    except Exception:
+    bdate = None
+    if birthdate_str:
+        s = birthdate_str.strip()
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+            try:
+                bdate = datetime.strptime(s, fmt).date()
+                break
+            except Exception:
+                pass
+    if not bdate:
         return 22  # Fallback age if date format is invalid
     
     if ref_date:
@@ -97,6 +104,9 @@ class PlayerBase(BaseModel):
     goals: Optional[int] = 0
     seasons_data: Optional[str] = None
     is_injured: Optional[bool] = False
+    injury_description: Optional[str] = ""
+    injury_return_time: Optional[str] = ""
+    injury_phase: Optional[str] = ""
     extra_pitch_team_id: Optional[str] = None
 
 class PlayerCreate(PlayerBase):
@@ -108,6 +118,12 @@ class Player(PlayerBase):
     age: int
     pitch_x: Optional[float] = None
     pitch_y: Optional[float] = None
+
+class PlayerInjuryUpdate(BaseModel):
+    is_injured: bool = True
+    injury_description: Optional[str] = ""
+    injury_return_time: Optional[str] = ""
+    injury_phase: Optional[str] = ""
 
 class PlayerStatsUpdate(BaseModel):
     minutes_played: int = 0
@@ -160,7 +176,9 @@ class MatchCreate(BaseModel):
     home_goals: int = 0
     away_goals: int = 0
     is_home: bool = True
-    competition: str = "FRIENDLY"
+    competition: str = "LALIGA HYPERMOTION"
+    match_type: Optional[str] = "LIGA"  # LIGA, AMISTOSO, COPA, OTRO
+    matchday: Optional[str] = ""  # ej. "Jornada 1", "J01", "1"
     custom_title: Optional[str] = None
     playing_time: str = "90 Minutes"
     substitute_cadence: str = ""
