@@ -1343,10 +1343,61 @@ function renderTacticalPitch() {
   if (!container || !currentMatchDetails) return;
 
   const starters = currentMatchDetails.starters;
+  const substitutes = currentMatchDetails.substitutes || [];
   const playersMap = currentMatchDetails.players_map;
   const subsEvents = currentMatchDetails.substitutions;
   const subbedOutMap = {};
   subsEvents.forEach(se => subbedOutMap[se.player_out_id] = se.minute);
+
+  // Incoming substitutes for sideline display
+  const incomingSubs = subsEvents.map(s => {
+    const pObj = playersMap[s.player_in_id] || currentPlayers.find(x => x.id === s.player_in_id) || { id: s.player_in_id, name: 'Suplente' };
+    const subDetails = substitutes.find(sub => sub.player_id === s.player_in_id) || {};
+    return {
+      id: s.player_in_id,
+      name: pObj.name,
+      photo_url: pObj.photo_url,
+      minute: s.minute,
+      has_yellow_card: subDetails.has_yellow_card,
+      has_red_card: subDetails.has_red_card,
+      card_minute: subDetails.card_minute,
+      goals: subDetails.goals || 0
+    };
+  });
+
+  let sidelineHtml = "";
+  if (incomingSubs.length > 0) {
+    sidelineHtml = `
+      <div class="pitch-sideline-subs">
+        <div class="pitch-sideline-subs-title">▲ ENTRADAS</div>
+        ${incomingSubs.map(sub => {
+          const photoContent = sub.photo_url 
+            ? `<img src="${sub.photo_url}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`
+            : `<span style="font-size: 0.75rem; color: white;">👤</span>`;
+          
+          let badgesHtml = `<div class="event-badge sub-in-badge">▲ ${sub.minute}'</div>`;
+          if (sub.has_red_card) {
+            badgesHtml += `<div class="yellow-card-badge" style="background-color: #ef4444; border-color: #b91c1c; left: -5px; right: auto;"></div>`;
+          } else if (sub.has_yellow_card) {
+            badgesHtml += `<div class="yellow-card-badge" style="left: -5px; right: auto;"></div>`;
+          }
+          if (sub.goals && sub.goals > 0) {
+            badgesHtml += `<div class="event-badge goal-badge" style="right: -6px; top: -6px;">⚽${sub.goals > 1 ? ' ' + sub.goals : ''}</div>`;
+          }
+
+          return `
+            <div class="sideline-sub-card" onclick="openPlayerCardModal('${sub.id}')" title="${sub.name} (Entró en min ${sub.minute}')">
+              <div class="player-photo-circle" style="width: 32px; height: 32px;">
+                ${photoContent}
+                ${badgesHtml}
+              </div>
+              <div class="player-name-pill" style="font-size: 0.65rem; padding: 1px 5px; max-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${sub.name}</div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
 
   container.innerHTML = `
     <div class="pitch-svg-canvas" id="tacticalEditorPitchCanvas">
@@ -1384,6 +1435,7 @@ function renderTacticalPitch() {
           </div>
         `;
       }).join("")}
+      ${sidelineHtml}
     </div>
   `;
 
@@ -1419,10 +1471,15 @@ function renderSubstitutesPanel() {
       cardHtml = ` <span class="card-badge-pill card-yellow">${sub.card_minute ? sub.card_minute + '’ ' : ''}🟨</span>`;
     }
 
-    if (min) {
-      return `<div style="color: #00994c; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">▲ ${p.name} (${min}’)${cardHtml}</div>`;
+    let goalHtml = "";
+    if (sub.goals && sub.goals > 0) {
+      goalHtml = ` <span style="font-weight: 800; color: #1e40af; font-size: 0.78rem;">⚽${sub.goals > 1 ? ' ' + sub.goals : ''}</span>`;
     }
-    return `<div style="color: var(--navy-primary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">• ${p.name}${cardHtml}</div>`;
+
+    if (min) {
+      return `<div style="color: #00994c; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; gap: 4px;"><span>▲ ${p.name}${goalHtml}${cardHtml}</span><span class="sub-min-tag">${min}’</span></div>`;
+    }
+    return `<div style="color: var(--navy-primary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">• ${p.name}${goalHtml}${cardHtml}</div>`;
   }).join("");
 }
 
@@ -1432,6 +1489,8 @@ function renderSubstitutionsLog() {
 
   const subsEvents = currentMatchDetails.substitutions;
   const playersMap = currentMatchDetails.players_map;
+  const substitutes = currentMatchDetails.substitutes || [];
+  const starters = currentMatchDetails.starters || [];
 
   const badge = document.getElementById("subsDoneCountBadge");
   if (badge) badge.innerText = subsEvents.length;
@@ -1444,14 +1503,27 @@ function renderSubstitutionsLog() {
   container.innerHTML = subsEvents.map((ev, idx) => {
     const pOut = playersMap[ev.player_out_id] || { name: 'Sale' };
     const pIn = playersMap[ev.player_in_id] || { name: 'Entra' };
+    
+    const subInDetails = substitutes.find(s => s.player_id === ev.player_in_id) || {};
+    const stOutDetails = starters.find(s => s.player_id === ev.player_out_id) || {};
+
+    let inBadges = "";
+    if (subInDetails.goals && subInDetails.goals > 0) inBadges += ` ⚽${subInDetails.goals > 1 ? ' ' + subInDetails.goals : ''}`;
+    if (subInDetails.has_red_card) inBadges += ` 🟥${subInDetails.card_minute ? ' ' + subInDetails.card_minute + '\'' : ''}`;
+    else if (subInDetails.has_yellow_card) inBadges += ` 🟨${subInDetails.card_minute ? ' ' + subInDetails.card_minute + '\'' : ''}`;
+
+    let outBadges = "";
+    if (stOutDetails.goals && stOutDetails.goals > 0) outBadges += ` ⚽${stOutDetails.goals > 1 ? ' ' + stOutDetails.goals : ''}`;
+    if (stOutDetails.has_red_card) outBadges += ` 🟥`;
+    else if (stOutDetails.has_yellow_card) outBadges += ` 🟨`;
 
     return `
       <div class="sub-event-card">
-        <div>
+        <div style="flex: 1;">
           <span style="font-weight: 700; color: var(--navy-primary);">${ev.minute}’</span> 
-          <span style="color: #00994c; font-weight: 600;">🔺 ${pIn.name}</span> 
+          <span style="color: #00994c; font-weight: 600;">🔺 ${pIn.name}${inBadges}</span> 
           <span style="color: var(--text-muted); font-size: 0.75rem;">por</span> 
-          <span style="color: #dc2626; font-weight: 600;">🔻 ${pOut.name}</span>
+          <span style="color: #dc2626; font-weight: 600;">🔻 ${pOut.name}${outBadges}</span>
         </div>
         <button class="btn btn-secondary" style="padding: 2px 6px; font-size: 0.72rem; color: #dc2626;" onclick="deleteSubstitutionEvent(${idx})" title="Deshacer este cambio">🗑️</button>
       </div>
@@ -2110,35 +2182,86 @@ function renderSquadPitchPreview(boxes, allPitchPlayers = []) {
   if (canvas) attachPitchDragListeners(canvas, true);
 }
 
-function renderMatchPreview(data) {
+function renderMatchPreview(data, targetContainerId = "prevPitchCContainer", targetSubListId = "prevSubListC", targetSubLogId = "prevSubLogC") {
   // 1. Center Pitch
-  const pitchContainer = document.getElementById("prevPitchCContainer");
+  const pitchContainer = document.getElementById(targetContainerId);
   if (!pitchContainer) return;
   const boxes = data.starter_boxes;
+  const canvasId = targetContainerId === "prevPitchCContainer" ? "matchPitchCanvas" : `matchPitchCanvas_${targetContainerId}`;
+
+  // Extract incoming substitutes for sideline display
+  const incomingSubs = (data.substitutions || []).map(s => {
+    const pObj = (data.players_map && data.players_map[s.player_in_id]) || currentPlayers.find(x => x.id === s.player_in_id) || { id: s.player_in_id, name: 'Suplente' };
+    const subDetails = (data.substitutes || []).find(sub => sub.player_id === s.player_in_id) || {};
+    return {
+      id: s.player_in_id,
+      name: pObj.name,
+      photo_url: pObj.photo_url,
+      minute: s.minute,
+      has_yellow_card: subDetails.has_yellow_card,
+      has_red_card: subDetails.has_red_card,
+      card_minute: subDetails.card_minute,
+      goals: subDetails.goals || 0
+    };
+  });
+
+  let sidelineHtml = "";
+  if (incomingSubs.length > 0) {
+    sidelineHtml = `
+      <div class="pitch-sideline-subs">
+        <div class="pitch-sideline-subs-title">▲ ENTRADAS</div>
+        ${incomingSubs.map(sub => {
+          const photoContent = sub.photo_url 
+            ? `<img src="${sub.photo_url}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`
+            : `<span style="font-size: 0.75rem; color: white;">👤</span>`;
+          
+          let badgesHtml = `<div class="event-badge sub-in-badge">▲ ${sub.minute}'</div>`;
+          if (sub.has_red_card) {
+            badgesHtml += `<div class="yellow-card-badge" style="background-color: #ef4444; border-color: #b91c1c; left: -5px; right: auto;"></div>`;
+          } else if (sub.has_yellow_card) {
+            badgesHtml += `<div class="yellow-card-badge" style="left: -5px; right: auto;"></div>`;
+          }
+          if (sub.goals && sub.goals > 0) {
+            badgesHtml += `<div class="event-badge goal-badge" style="right: -6px; top: -6px;">⚽${sub.goals > 1 ? ' ' + sub.goals : ''}</div>`;
+          }
+
+          return `
+            <div class="sideline-sub-card" onclick="openPlayerCardModal('${sub.id}')" title="${sub.name} (Entró en min ${sub.minute}')">
+              <div class="player-photo-circle" style="width: 32px; height: 32px;">
+                ${photoContent}
+                ${badgesHtml}
+              </div>
+              <div class="player-name-pill" style="font-size: 0.65rem; padding: 1px 5px; max-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${sub.name}</div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
   pitchContainer.innerHTML = `
     <div style="display: flex; justify-content: center; width: 100%;">
-      <div class="pitch-svg-canvas" id="matchPitchCanvas">
+      <div class="pitch-svg-canvas" id="${canvasId}">
         ${boxes.map(b => {
           let badgesHtml = "";
-          if (currentMatchDetails) {
-              const st = currentMatchDetails.starters.find(s => s.player_id === b.id);
-              if (st) {
-                  const subbedOutMap = {};
-                  currentMatchDetails.substitutions.forEach(se => subbedOutMap[se.player_out_id] = se.minute);
-                  const subMin = subbedOutMap[st.player_id] || st.sub_out_minute;
-                  
-                  if (subMin) {
-                    badgesHtml += `<div class="event-badge sub-out-badge">${subMin}'</div>`;
-                  }
-                  if (st.has_red_card) {
-                    badgesHtml += `<div class="yellow-card-badge" style="background-color: #ef4444; border-color: #b91c1c; left: -5px; right: auto;"></div>`;
-                  } else if (st.has_yellow_card) {
-                    badgesHtml += `<div class="yellow-card-badge" style="left: -5px; right: auto;"></div>`;
-                  }
-                  
-                  if (st.goals && st.goals > 0) {
-                    badgesHtml += `<div class="event-badge goal-badge">⚽${st.goals > 1 ? ' '+st.goals : ''}</div>`;
-                  }
+          const startersList = data.starters || (currentMatchDetails ? currentMatchDetails.starters : []);
+          const st = startersList.find(s => s.player_id === b.id);
+          if (st) {
+              const subbedOutMap = {};
+              (data.substitutions || []).forEach(se => subbedOutMap[se.player_out_id] = se.minute);
+              const subMin = subbedOutMap[st.player_id] || st.sub_out_minute;
+              
+              if (subMin) {
+                badgesHtml += `<div class="event-badge sub-out-badge">${subMin}'</div>`;
+              }
+              if (st.has_red_card) {
+                badgesHtml += `<div class="yellow-card-badge" style="background-color: #ef4444; border-color: #b91c1c; left: -5px; right: auto;"></div>`;
+              } else if (st.has_yellow_card) {
+                badgesHtml += `<div class="yellow-card-badge" style="left: -5px; right: auto;"></div>`;
+              }
+              
+              if (st.goals && st.goals > 0) {
+                badgesHtml += `<div class="event-badge goal-badge">⚽${st.goals > 1 ? ' '+st.goals : ''}</div>`;
               }
           }
           
@@ -2159,39 +2282,51 @@ function renderMatchPreview(data) {
             </div>
           `;
         }).join("")}
+        ${sidelineHtml}
       </div>
     </div>
   `;
 
-  const matchCanvas = document.getElementById("matchPitchCanvas");
+  const matchCanvas = document.getElementById(canvasId);
   if (matchCanvas) attachPitchDragListeners(matchCanvas, false);
 
   // 2. Left Panel: Substitutes
-  const subContainer = document.getElementById("prevSubListC");
+  const subContainer = document.getElementById(targetSubListId);
   if (subContainer) {
     const subbedInMap = {};
-    data.substitutions.forEach(s => subbedInMap[s.player_in_id] = s.minute);
+    (data.substitutions || []).forEach(s => subbedInMap[s.player_in_id] = s.minute);
 
     let subHtml = `
       <div style="font-weight: 800; color: var(--navy-primary); font-size: 0.9rem; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid var(--gold-accent); display: flex; justify-content: space-between; align-items: center;">
         <span>CONVOCADOS</span>
-        <span class="badge" style="background: var(--navy-primary); color: white; font-size: 0.75rem; font-weight: 700;">${data.substitutes.length}</span>
+        <span class="badge" style="background: var(--navy-primary); color: white; font-size: 0.75rem; font-weight: 700;">${(data.substitutes || []).length}</span>
       </div>
       <div style="display: flex; flex-direction: column; gap: 4px;">
     `;
-    data.substitutes.forEach(sub => {
-      const p = data.players_map[sub.player_id] || { name: 'Suplente' };
+    (data.substitutes || []).forEach(sub => {
+      const p = (data.players_map && data.players_map[sub.player_id]) || { name: 'Suplente' };
       const min = subbedInMap[sub.player_id];
+      
+      let extraBadges = "";
+      if (sub.goals && sub.goals > 0) {
+        extraBadges += ` <span style="font-size: 0.72rem; color: #1e40af; font-weight: 800;">⚽${sub.goals > 1 ? ' ' + sub.goals : ''}</span>`;
+      }
+      if (sub.has_red_card) {
+        extraBadges += ` <span class="card-badge-pill card-red" style="font-size: 0.65rem;">${sub.card_minute ? sub.card_minute + '’ ' : ''}🟥</span>`;
+      } else if (sub.has_yellow_card) {
+        extraBadges += ` <span class="card-badge-pill card-yellow" style="font-size: 0.65rem;">${sub.card_minute ? sub.card_minute + '’ ' : ''}🟨</span>`;
+      }
+
       if (min) {
         subHtml += `
-          <div class="sub-list-item is-subbed-in">
-            <span style="color: #059669; font-weight: 800;">▲ ${p.name}</span>
+          <div class="sub-list-item is-subbed-in" style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: #059669; font-weight: 800;">▲ ${p.name}${extraBadges}</span>
             <span class="sub-min-tag">${min}’</span>
           </div>`;
       } else {
         subHtml += `
-          <div class="sub-list-item">
-            <span>• ${p.name}</span>
+          <div class="sub-list-item" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>• ${p.name}${extraBadges}</span>
           </div>`;
       }
     });
@@ -2200,14 +2335,15 @@ function renderMatchPreview(data) {
   }
 
   // 3. Right Panel: Substitutions Log & Cadence
-  const logContainer = document.getElementById("prevSubLogC");
+  const logContainer = document.getElementById(targetSubLogId);
   if (logContainer) {
     const m = data.match;
+    const subs = data.substitutions || [];
     let logHtml = `
       <div class="match-info-card-header">
         <div style="font-weight: 800; color: var(--navy-primary); font-size: 0.85rem; margin-bottom: 2px;">⏱️ ${m.playing_time || '90 Minutes'}</div>
         <div style="font-size: 0.75rem; font-weight: 600; color: #475569;">${m.substitute_cadence || '1 Cadence: 1 x 4'}</div>
-        <div style="font-size: 0.78rem; font-weight: 700; color: var(--navy-primary); margin-top: 4px;">Cambios Realizados: ${data.substitutions.length}</div>
+        <div style="font-size: 0.78rem; font-weight: 700; color: var(--navy-primary); margin-top: 4px;">Cambios Realizados: ${subs.length}</div>
       </div>
       <div style="font-weight: 800; color: var(--navy-primary); font-size: 0.85rem; margin-top: 10px; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 2px solid var(--gold-accent);">
         HISTORIAL DE CAMBIOS
@@ -2215,12 +2351,26 @@ function renderMatchPreview(data) {
       <div style="display: flex; flex-direction: column; gap: 6px; max-height: 480px; overflow-y: auto;">
     `;
 
-    if (data.substitutions.length === 0) {
+    if (subs.length === 0) {
       logHtml += `<div style="color: #94a3b8; font-style: italic; font-size: 0.8rem; text-align: center; padding: 12px 0;">Sin cambios realizados</div>`;
     } else {
-      data.substitutions.forEach((ev, idx) => {
-        const pOut = data.players_map[ev.player_out_id] || { name: 'Sale' };
-        const pIn = data.players_map[ev.player_in_id] || { name: 'Entra' };
+      subs.forEach((ev, idx) => {
+        const pOut = (data.players_map && data.players_map[ev.player_out_id]) || { name: 'Sale' };
+        const pIn = (data.players_map && data.players_map[ev.player_in_id]) || { name: 'Entra' };
+        
+        const subInDetails = (data.substitutes || []).find(s => s.player_id === ev.player_in_id) || {};
+        const stOutDetails = (data.starters || []).find(s => s.player_id === ev.player_out_id) || {};
+
+        let inBadges = "";
+        if (subInDetails.goals && subInDetails.goals > 0) inBadges += ` ⚽${subInDetails.goals > 1 ? ' ' + subInDetails.goals : ''}`;
+        if (subInDetails.has_red_card) inBadges += ` 🟥${subInDetails.card_minute ? ' ' + subInDetails.card_minute + '\'' : ''}`;
+        else if (subInDetails.has_yellow_card) inBadges += ` 🟨${subInDetails.card_minute ? ' ' + subInDetails.card_minute + '\'' : ''}`;
+
+        let outBadges = "";
+        if (stOutDetails.goals && stOutDetails.goals > 0) outBadges += ` ⚽${stOutDetails.goals > 1 ? ' ' + stOutDetails.goals : ''}`;
+        if (stOutDetails.has_red_card) outBadges += ` 🟥`;
+        else if (stOutDetails.has_yellow_card) outBadges += ` 🟨`;
+
         logHtml += `
           <div class="sub-log-timeline-item">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
@@ -2228,8 +2378,8 @@ function renderMatchPreview(data) {
               <span class="sub-min-tag" style="background: var(--navy-primary); color: white;">${ev.minute}’</span>
             </div>
             <div style="font-size: 0.76rem; display: flex; flex-direction: column; gap: 2px;">
-              <span style="color: #059669; font-weight: 700;">▲ Entra: ${pIn.name}</span>
-              <span style="color: #dc2626; font-weight: 700;">▼ Sale: ${pOut.name}</span>
+              <span style="color: #059669; font-weight: 700;">▲ Entra: ${pIn.name}${inBadges}</span>
+              <span style="color: #dc2626; font-weight: 700;">▼ Sale: ${pOut.name}${outBadges}</span>
             </div>
           </div>
         `;
@@ -2237,6 +2387,96 @@ function renderMatchPreview(data) {
     }
     logHtml += `</div>`;
     logContainer.innerHTML = logHtml;
+  }
+}
+
+// ===== MULTI-SLIDE C MATCH REPORTS IN PREVIEW =====
+let extraPreviewMatchReports = [];
+
+function addExtraSlideCPreviewReport() {
+  if (!currentMatches || currentMatches.length === 0) {
+    alert("No hay partidos disponibles para añadir.");
+    return;
+  }
+  const reportId = "extra_c_" + Date.now();
+  const existingIds = new Set([previewMatchId, ...extraPreviewMatchReports.map(r => r.matchId)]);
+  const availableMatch = currentMatches.find(m => !existingIds.has(m.id)) || currentMatches[0];
+  
+  extraPreviewMatchReports.push({ id: reportId, matchId: availableMatch.id });
+  renderExtraSlideCReports();
+}
+
+function removeExtraSlideCPreviewReport(reportId) {
+  extraPreviewMatchReports = extraPreviewMatchReports.filter(r => r.id !== reportId);
+  renderExtraSlideCReports();
+}
+
+async function switchExtraPreviewMatch(reportId, matchId) {
+  const rep = extraPreviewMatchReports.find(r => r.id === reportId);
+  if (rep) {
+    rep.matchId = matchId;
+    await renderSingleExtraSlideCReport(rep);
+  }
+}
+
+async function renderExtraSlideCReports() {
+  const container = document.getElementById("extraSlideCReportsContainer");
+  if (!container) return;
+
+  if (extraPreviewMatchReports.length === 0) {
+    container.innerHTML = "";
+    return;
+  }
+
+  container.innerHTML = extraPreviewMatchReports.map((rep, idx) => `
+    <div class="preview-slide-card" id="slideCard_${rep.id}">
+      <div class="slide-header-bar">
+        <div>
+          <p style="font-size: 0.8rem; font-weight: 700; color: var(--navy-primary);">Diapositiva C (Informe Adicional #${idx + 1})</p>
+          <h2 class="slide-title-navy" id="prevTitle_${rep.id}">MATCH REPORT</h2>
+        </div>
+        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; background: #f8fafc; padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;">
+            <span style="font-size: 0.75rem; font-weight: 600; color: var(--navy-primary);">Partido:</span>
+            <select id="select_${rep.id}" class="form-control" style="font-size: 0.75rem; padding: 2px 4px; max-width: 320px;" onchange="switchExtraPreviewMatch('${rep.id}', this.value)">
+              ${currentMatches.map(m => `<option value="${m.id}" ${m.id === rep.matchId ? 'selected' : ''}>${formatMatchLabel(m)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="slide-kpi-box" id="prevKpi_${rep.id}">TOTAL NUMBER OF SUBSTITUTIONS: 0</div>
+          <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.75rem; color: #dc2626; border-color: #fca5a5;" onclick="removeExtraSlideCPreviewReport('${rep.id}')" title="Quitar este informe de la vista previa">✕ Quitar</button>
+        </div>
+      </div>
+
+      <div class="slide-c-content-grid">
+        <div style="background-color: var(--peach-accent); padding: 0.75rem; border-radius: 6px; font-size: 0.8rem;" id="prevSubList_${rep.id}"></div>
+        <div class="pitch-container" id="prevPitch_${rep.id}" style="min-height: 400px;"></div>
+        <div style="padding: 0.75rem; font-size: 0.8rem;" id="prevSubLog_${rep.id}"></div>
+      </div>
+
+      <div class="slide-footer-gold">CLUB | SEASON | MEDICAL & SPORTS SCIENCE DEPARTMENT</div>
+    </div>
+  `).join("");
+
+  for (const rep of extraPreviewMatchReports) {
+    await renderSingleExtraSlideCReport(rep);
+  }
+}
+
+async function renderSingleExtraSlideCReport(rep) {
+  try {
+    const res = await fetch(`${API_BASE}/preview/match/${rep.matchId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    
+    const titleEl = document.getElementById(`prevTitle_${rep.id}`);
+    if (titleEl) titleEl.innerText = `${data.match.opponent} v DEPORTIVO (${data.match.result_type} ${data.match.home_goals}-${data.match.away_goals})`;
+    
+    const kpiEl = document.getElementById(`prevKpi_${rep.id}`);
+    if (kpiEl) kpiEl.innerText = `TOTAL NUMBER OF SUBSTITUTIONS: ${data.substitutions.length}`;
+    
+    renderMatchPreview(data, `prevPitch_${rep.id}`, `prevSubList_${rep.id}`, `prevSubLog_${rep.id}`);
+  } catch(e) {
+    console.error("Error rendering extra slide report:", e);
   }
 }
 

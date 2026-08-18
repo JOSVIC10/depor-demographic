@@ -427,18 +427,20 @@ class PPTXGenerator:
             has_yellow = getattr(sub_entry, 'has_yellow_card', False)
             has_red = getattr(sub_entry, 'has_red_card', False)
             c_min = getattr(sub_entry, 'card_minute', None)
+            goals = getattr(sub_entry, 'goals', 0)
+            goal_badge = f" (⚽ {goals})" if goals and goals > 0 else ""
             card_badge = f" ({c_min}’ 🟥)" if (has_red and c_min) else (" 🟥" if has_red else (f" ({c_min}’ 🟨)" if (has_yellow and c_min) else (" 🟨" if has_yellow else "")))
 
             p_txt = tf_sub.add_paragraph()
             
             if sub_entry.player_id in subbed_in_map:
                 ev = subbed_in_map[sub_entry.player_id]
-                p_txt.text = f"▲ {p_name} ({ev.minute}’){card_badge}"
+                p_txt.text = f"▲ {p_name} ({ev.minute}’){goal_badge}{card_badge}"
                 p_txt.font.bold = True
                 p_txt.font.size = Pt(9.5)
                 p_txt.font.color.rgb = GREEN_ARROW
             else:
-                p_txt.text = f"• {p_name}{card_badge}"
+                p_txt.text = f"• {p_name}{goal_badge}{card_badge}"
                 p_txt.font.size = Pt(9.0)
                 p_txt.font.color.rgb = NAVY
 
@@ -459,8 +461,13 @@ class PPTXGenerator:
             out_name = p_out.name if p_out else "Out"
             in_name = p_in.name if p_in else "In"
             
+            in_sub = next((s for s in substitutes if s.player_id == ev.player_in_id), None)
+            in_goals = getattr(in_sub, 'goals', 0) if in_sub else 0
+            in_goal_str = f" ⚽{in_goals}" if in_goals > 0 else ""
+            in_card_str = " 🟥" if (in_sub and getattr(in_sub, 'has_red_card', False)) else (" 🟨" if (in_sub and getattr(in_sub, 'has_yellow_card', False)) else "")
+            
             p_item = tf_log.add_paragraph()
-            p_item.text = f"{idx}. Min {ev.minute}’:\n   {in_name}\n   (sale {out_name})"
+            p_item.text = f"{idx}. Min {ev.minute}’:\n   ▲ {in_name}{in_goal_str}{in_card_str}\n   ▼ (sale {out_name})"
             p_item.font.size = Pt(9.0)
             p_item.font.color.rgb = NAVY
 
