@@ -10,6 +10,7 @@ def seed():
     # 1. Create Teams
     depor = db.create_team(name="DEPORTIVO A CORUÑA", season="2026/27 SEASON", club_name="DEPORTIVO DE A CORUÑA FC", team_id="depor")
     fabril = db.create_team(name="FABRIL", season="2026/27 SEASON", club_name="DEPORTIVO DE A CORUÑA FC", team_id="fabril")
+    juvenil_a = db.create_team(name="JUVENIL A", season="2026/27 SEASON", club_name="DEPORTIVO DE A CORUÑA FC", team_id="juvenil_a")
     penafiel = db.create_team(name="PEÑAFIEL", season="2026/27 SEASON", club_name="DEPORTIVO A CORUÑA FC", team_id="penafiel")
     
     # Clear existing players & matches for clean seed
@@ -115,6 +116,22 @@ def seed():
     for name, bdate, pos, p_id in fabril_players_data:
         p = db.create_player(name=name, birthdate=bdate, detailed_position=pos, team_id="fabril", player_id=p_id)
         fabril_map[p_id] = p
+
+    # 3. Juvenil A Squad (10 players)
+    juvenil_players_data = [
+        ("Hugo Baldomar", "2007-03-14", "Portero", "p_juv_baldomar"),
+        ("Pablo García", "2007-08-11", "Defensa central", "p_juv_pgarcia"),
+        ("Samuel Fernández", "2007-10-15", "Defensa central", "p_juv_samu"),
+        ("Lucas Castro", "2007-01-20", "Lateral izquierdo", "p_juv_lcastro"),
+        ("Guille P.", "2007-05-15", "Lateral derecho", "p_juv_guillep"),
+        ("Manu Ferreiro", "2007-02-23", "Mediocentro", "p_juv_mferreiro"),
+        ("Noé Carrillo Jr", "2007-11-05", "Mediocentro", "p_juv_carrillojr"),
+        ("David Vergara", "2007-05-19", "Extremo derecho", "p_juv_dvergara"),
+        ("M. Valeiro", "2007-07-19", "Extremo izquierdo", "p_juv_valeiro"),
+        ("Álex Delgado", "2007-09-02", "Delantero centro", "p_juv_adelgado"),
+    ]
+    for name, bdate, pos, p_id in juvenil_players_data:
+        db.create_player(name=name, birthdate=bdate, detailed_position=pos, team_id="juvenil_a", player_id=p_id)
 
     # 4. Peñafiel Squad (27 players)
     penafiel_players_data = [

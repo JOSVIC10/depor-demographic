@@ -291,8 +291,27 @@
 
     <!-- Tab 3: Vista Previa en Vivo -->
     <section id="tab-preview" class="tab-content">
+      <!-- Slide Visibility Toggles -->
+      <div class="card" style="margin-bottom: 1.5rem; padding: 0.75rem 1rem;">
+        <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+          <span style="font-weight: 700; color: var(--navy-primary); font-size: 0.85rem;">📋 Diapositivas visibles:</span>
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; color: var(--text-primary); font-weight: 600;">
+            <input type="checkbox" id="toggleSlideA" checked onchange="toggleSlideVisibility('A', this.checked)">
+            <span>🅰️ Demográfico</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; color: var(--text-primary); font-weight: 600;">
+            <input type="checkbox" id="toggleSlideB" checked onchange="toggleSlideVisibility('B', this.checked)">
+            <span>🅱️ Campograma</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; color: var(--text-primary); font-weight: 600;">
+            <input type="checkbox" id="toggleSlideC" checked onchange="toggleSlideVisibility('C', this.checked)">
+            <span>🅲 Informe Partido</span>
+          </label>
+        </div>
+      </div>
+
       <!-- Slide A Preview -->
-      <div class="preview-slide-card">
+      <div class="preview-slide-card" id="slideAContainer">
         <div class="slide-header-bar">
           <div>
             <p style="font-size: 0.8rem; font-weight: 700; color: var(--navy-primary);">Diapositiva A</p>
@@ -311,7 +330,7 @@
       </div>
 
       <!-- Slide B Preview -->
-      <div class="preview-slide-card">
+      <div class="preview-slide-card" id="slideBContainer">
         <div class="slide-header-bar">
           <div>
             <p style="font-size: 0.8rem; font-weight: 700; color: var(--navy-primary);">Diapositiva B</p>
@@ -336,7 +355,7 @@
         </div>
 
         <div class="slide-b-content-grid">
-          <!-- Lesionados Sidebar -->
+          <!-- Lesionados Sidebar (Left) -->
           <div class="lesionados-sidebar">
             <div class="lesionados-sidebar-header">
               <h4>🏥 LESIONADOS / INJURED</h4>
@@ -348,9 +367,27 @@
             </div>
           </div>
 
-          <!-- Pitch Container -->
+          <!-- Pitch Container (Center) -->
           <div class="pitch-container" id="prevPitchBContainer" style="flex: 1;">
             <!-- Slide B Pitch Preview -->
+          </div>
+
+          <!-- Extra / Filial Players Sidebar (Right) -->
+          <div class="extra-pitch-sidebar">
+            <div class="extra-pitch-header">
+              <h4 id="extraPitchSidebarTitle">🌟 FILIAL / JUVENIL</h4>
+              <span id="extraPitchCountBadge" class="badge" style="background: rgba(255,255,255,0.15); color: white; font-size: 0.68rem;">0</span>
+            </div>
+
+            <!-- Selector to add new external player -->
+            <div class="extra-pitch-add-box">
+              <select id="extraPitchPlayerSelect" class="form-control" style="font-size: 0.75rem; padding: 4px 6px; flex: 1;"></select>
+              <button class="btn btn-primary" style="padding: 4px 8px; font-size: 0.75rem; font-weight: 700;" onclick="addExtraPlayerToPitch()" title="Añadir jugador al campograma">➕</button>
+            </div>
+
+            <div id="extraPitchPlayersList" class="extra-pitch-players-scroll">
+              <!-- Extra players registered on pitch rendered here -->
+            </div>
           </div>
         </div>
 
@@ -358,13 +395,19 @@
       </div>
 
       <!-- Slide C Preview -->
-      <div class="preview-slide-card">
+      <div class="preview-slide-card" id="slideCContainer">
         <div class="slide-header-bar">
           <div>
             <p style="font-size: 0.8rem; font-weight: 700; color: var(--navy-primary);">Diapositiva C</p>
             <h2 class="slide-title-navy" id="prevTitleC">MATCH REPORT</h2>
           </div>
-          <div class="slide-kpi-box" id="prevKpiC">TOTAL NUMBER OF SUBSTITUTIONS: 0</div>
+          <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; background: #f8fafc; padding: 4px 8px; border-radius: 4px; border: 1px solid #cbd5e1;">
+              <span style="font-size: 0.75rem; font-weight: 600; color: var(--navy-primary);">Partido:</span>
+              <select id="previewMatchSelect" class="form-control" style="font-size: 0.75rem; padding: 2px 4px; max-width: 320px;" onchange="switchPreviewMatch(this.value)"></select>
+            </div>
+            <div class="slide-kpi-box" id="prevKpiC">TOTAL NUMBER OF SUBSTITUTIONS: 0</div>
+          </div>
         </div>
 
         <div class="slide-c-content-grid">
@@ -395,7 +438,10 @@
         </p>
 
         <div class="form-group">
-          <label>Seleccionar Partidos a incluir en el Informe:</label>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <label style="margin-bottom: 0;">Seleccionar Partidos a incluir en el Informe:</label>
+            <button class="btn btn-secondary" style="padding: 4px 12px; font-size: 0.78rem; font-weight: 700;" onclick="toggleAllExportMatches()" id="toggleAllMatchesBtn">☑️ Deseleccionar Todos</button>
+          </div>
           <div id="exportMatchesChecklist" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 0.375rem; padding: 0.75rem;">
             <!-- Checkboxes rendered here -->
           </div>

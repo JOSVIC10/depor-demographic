@@ -1974,11 +1974,14 @@ async function renderLivePreviews() {
     document.getElementById("prevKpiB").innerText = `NUMERO DE JUGADORES: ${dataB.boxes.length} JUGADORES`;
     renderSquadPitchPreview(dataB.boxes, dataB.all_pitch_players || []);
     renderInjuredPlayers(dataB.injured || []);
-    populateGlobalDropdowns();
+    renderExtraPitchPlayers(dataB.extra_pitch_players || []);
+    populateGlobalDropdowns(dataB.extra_pitch_players || []);
 
-    // Slide C Preview
-    if (currentMatchId) {
-      const resC = await fetch(`${API_BASE}/preview/match/${currentMatchId}`);
+    // Slide C Preview - populate match selector and use previewMatchId
+    populatePreviewMatchSelect();
+    const matchIdForPreview = previewMatchId || currentMatchId;
+    if (matchIdForPreview) {
+      const resC = await fetch(`${API_BASE}/preview/match/${matchIdForPreview}`);
       const dataC = await resC.json();
       document.getElementById("prevTitleC").innerText = `${dataC.match.opponent} v DEPORTIVO (${dataC.match.result_type} ${dataC.match.home_goals}-${dataC.match.away_goals})`;
       document.getElementById("prevKpiC").innerText = `TOTAL NUMBER OF SUBSTITUTIONS: ${dataC.substitutions.length}`;
@@ -2300,21 +2303,90 @@ async function importMatchFromUrl() {
 }
 
 // Export checklist & action
+// ===== SLIDE VISIBILITY TOGGLES =====
+function toggleSlideVisibility(slide, visible) {
+  const containerMap = { 'A': 'slideAContainer', 'B': 'slideBContainer', 'C': 'slideCContainer' };
+  const container = document.getElementById(containerMap[slide]);
+  if (container) {
+    container.style.display = visible ? '' : 'none';
+  }
+}
+
+// ===== PREVIEW MATCH SELECTOR =====
+let previewMatchId = null;
+
+function populatePreviewMatchSelect() {
+  const select = document.getElementById("previewMatchSelect");
+  if (!select) return;
+  if (!currentMatches || currentMatches.length === 0) {
+    select.innerHTML = `<option value="">(Sin partidos)</option>`;
+    previewMatchId = null;
+    return;
+  }
+  select.innerHTML = currentMatches.map(m => `<option value="${m.id}">${formatMatchLabel(m)}</option>`).join("");
+  // Default to the currently selected match or the first one
+  if (previewMatchId && currentMatches.some(m => m.id === previewMatchId)) {
+    select.value = previewMatchId;
+  } else if (currentMatchId && currentMatches.some(m => m.id === currentMatchId)) {
+    select.value = currentMatchId;
+    previewMatchId = currentMatchId;
+  } else {
+    previewMatchId = currentMatches[0].id;
+    select.value = previewMatchId;
+  }
+}
+
+async function switchPreviewMatch(matchId) {
+  if (!matchId) return;
+  previewMatchId = matchId;
+  try {
+    const resC = await fetch(`${API_BASE}/preview/match/${matchId}`);
+    const dataC = await resC.json();
+    document.getElementById("prevTitleC").innerText = `${dataC.match.opponent} v DEPORTIVO (${dataC.match.result_type} ${dataC.match.home_goals}-${dataC.match.away_goals})`;
+    document.getElementById("prevKpiC").innerText = `TOTAL NUMBER OF SUBSTITUTIONS: ${dataC.substitutions.length}`;
+    renderMatchPreview(dataC);
+  } catch (err) {
+    console.error("Error loading preview match:", err);
+  }
+}
+
+// ===== EXPORT MATCHES CHECKLIST =====
 function renderExportMatchesChecklist() {
   const container = document.getElementById("exportMatchesChecklist");
   if (!container) return;
   if (!currentMatches || currentMatches.length === 0) {
     container.innerHTML = `<span style="color: var(--text-muted); font-size: 0.85rem;">No hay partidos creados para este equipo.</span>`;
+    updateToggleAllButton();
     return;
   }
   container.innerHTML = currentMatches.map(m => `
     <div style="margin-bottom: 6px;">
       <label style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem; cursor: pointer;">
-        <input type="checkbox" value="${m.id}" checked>
+        <input type="checkbox" value="${m.id}" checked onchange="updateToggleAllButton()">
         <span>${formatMatchLabel(m)}</span>
       </label>
     </div>
   `).join("");
+  updateToggleAllButton();
+}
+
+function toggleAllExportMatches() {
+  const checkboxes = document.querySelectorAll("#exportMatchesChecklist input[type='checkbox']");
+  const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+  checkboxes.forEach(cb => cb.checked = !allChecked);
+  updateToggleAllButton();
+}
+
+function updateToggleAllButton() {
+  const btn = document.getElementById("toggleAllMatchesBtn");
+  if (!btn) return;
+  const checkboxes = document.querySelectorAll("#exportMatchesChecklist input[type='checkbox']");
+  const allChecked = checkboxes.length > 0 && Array.from(checkboxes).every(cb => cb.checked);
+  if (allChecked) {
+    btn.innerHTML = "☑️ Deseleccionar Todos";
+  } else {
+    btn.innerHTML = "✅ Seleccionar Todos";
+  }
 }
 
 async function triggerExport(format, allTeams = false) {
@@ -2372,17 +2444,101 @@ async function triggerExport(format, allTeams = false) {
 let allGlobalPlayersCache = [];
 let currentInjuredPlayersCache = [];
 
-async function populateGlobalDropdowns() {
+// Extra Pitch (Filial / Juvenil) Players Logic
+function renderExtraPitchPlayers(extraPlayers) {
+  const list = document.getElementById("extraPitchPlayersList");
+  const countBadge = document.getElementById("extraPitchCountBadge");
+  const sidebarTitle = document.getElementById("extraPitchSidebarTitle");
+  
+  if (sidebarTitle) {
+    if (currentTeamId === 'depor') sidebarTitle.innerText = "🌟 FILIAL (FABRIL)";
+    else if (currentTeamId === 'fabril') sidebarTitle.innerText = "🌟 JUVENIL A";
+    else sidebarTitle.innerText = "🌟 FILIAL / OTROS";
+  }
+
+  if (countBadge) countBadge.innerText = (extraPlayers ? extraPlayers.length : 0);
+  if (!list) return;
+
+  if (!extraPlayers || extraPlayers.length === 0) {
+    list.innerHTML = `<div style="color: rgba(255,255,255,0.45); font-size: 0.75rem; font-style: italic; text-align: center; padding: 1.5rem 0;">Sin jugadores incorporados.</div>`;
+    return;
+  }
+
+  list.innerHTML = extraPlayers.map(p => {
+    const photoContent = p.photo_url 
+      ? `<img src="${p.photo_url}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`
+      : `<span style="font-size: 0.85rem; color: white;">👤</span>`;
+    const teamBadgeColor = p.team_id === 'fabril' ? '#002060' : '#16a34a';
+    const teamBadgeText = (p.team_id === 'fabril' ? 'FABRIL' : (p.team_id === 'juvenil_a' ? 'JUVENIL A' : p.team_id || '')).toUpperCase();
+
+    return `
+      <div class="extra-player-card">
+        <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; flex: 1;">
+          <div style="width: 28px; height: 28px; border-radius: 50%; overflow: hidden; background: #334155; border: 1px solid rgba(255,255,255,0.3); flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+            ${photoContent}
+          </div>
+          <div style="display: flex; flex-direction: column; overflow: hidden;">
+            <div style="font-weight: 700; color: white; font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.name}</div>
+            <div style="display: flex; gap: 4px; align-items: center;">
+              <span class="badge" style="background: ${teamBadgeColor}; color: white; font-size: 0.6rem; padding: 1px 4px; font-weight: 700;">${teamBadgeText}</span>
+              <span style="color: #94a3b8; font-size: 0.68rem; white-space: nowrap;">${p.detailed_position}</span>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-secondary" style="padding: 2px 6px; font-size: 0.7rem; background: rgba(239, 68, 68, 0.25); color: #fca5a5; border: none; cursor: pointer;" onclick="removeExtraPlayerFromPitch('${p.id}')" title="Retirar del campograma">✕</button>
+      </div>
+    `;
+  }).join("");
+}
+
+async function removeExtraPlayerFromPitch(playerId) {
+  try {
+    const res = await fetch(`${API_BASE}/players/${playerId}/pitch-position`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pitch_x: null, pitch_y: null, extra_pitch_team_id: null })
+    });
+    if (res.ok) {
+      await renderLivePreviews();
+    }
+  } catch (e) {
+    console.error("Error removing extra player:", e);
+  }
+}
+
+async function populateGlobalDropdowns(currentExtraPlayers = []) {
   try {
     const res = await fetch(`${API_BASE}/players/all`);
     const allPlayers = await res.json();
     allGlobalPlayersCache = allPlayers;
     
     const extraSelect = document.getElementById("extraPitchPlayerSelect");
-    if (extraSelect) {
-      const options = allPlayers.map(p => `<option value="${p.id}">${p.name} (${p.team_id})</option>`);
-      const defaultOption = `<option value="">-- Seleccionar --</option>`;
-      extraSelect.innerHTML = defaultOption + options.join("");
+    if (!extraSelect) return;
+
+    // Filter available external players according to strict hierarchy rules:
+    // 1. If currentTeamId === 'depor': ONLY players from 'fabril'
+    // 2. If currentTeamId === 'fabril': ONLY players from 'juvenil_a'
+    // 3. If currentTeamId === 'penafiel': NONE
+    let eligiblePlayers = [];
+    if (currentTeamId === "depor") {
+      eligiblePlayers = allPlayers.filter(p => p.team_id === "fabril");
+    } else if (currentTeamId === "fabril") {
+      eligiblePlayers = allPlayers.filter(p => p.team_id === "juvenil_a");
+    } else {
+      eligiblePlayers = [];
+    }
+
+    // Exclude players already on this team's pitch
+    const extraIds = new Set((currentExtraPlayers || []).map(p => p.id));
+    const available = eligiblePlayers.filter(p => !extraIds.has(p.id) && p.extra_pitch_team_id !== currentTeamId);
+
+    if (available.length === 0) {
+      extraSelect.innerHTML = `<option value="">-- Sin jugadores disponibles --</option>`;
+      extraSelect.disabled = true;
+    } else {
+      extraSelect.disabled = false;
+      const options = available.map(p => `<option value="${p.id}">${p.name} (${p.detailed_position})</option>`);
+      extraSelect.innerHTML = `<option value="">-- Seleccionar jugador --</option>` + options.join("");
     }
   } catch(e) {
     console.error("Error fetching all players", e);
@@ -2391,8 +2547,11 @@ async function populateGlobalDropdowns() {
 
 async function addExtraPlayerToPitch() {
   const select = document.getElementById("extraPitchPlayerSelect");
-  const playerId = select.value;
-  if (!playerId) return;
+  const playerId = select ? select.value : "";
+  if (!playerId) {
+    alert("Por favor selecciona un jugador para incorporar.");
+    return;
+  }
   
   try {
     const res = await fetch(`${API_BASE}/players/${playerId}/pitch-position`, {
@@ -2404,7 +2563,7 @@ async function addExtraPlayerToPitch() {
       await renderLivePreviews();
     }
   } catch(e) {
-    console.error(e);
+    console.error("Error adding extra player:", e);
   }
 }
 

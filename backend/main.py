@@ -993,11 +993,13 @@ def preview_squad_pitch(team_id: str):
             pitch_players.append(p)
             
     boxes = engine.layout_full_squad([p.model_dump() for p in pitch_players])
+    extra_players = db.get_extra_pitch_players(team_id)
     return {
         "team": team,
         "boxes": boxes,
         "injured": injured,
-        "all_pitch_players": players
+        "all_pitch_players": players,
+        "extra_pitch_players": extra_players
     }
 
 @app.get("/api/preview/match/{match_id}")

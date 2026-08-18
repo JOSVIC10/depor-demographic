@@ -380,6 +380,19 @@ def get_players_by_team(team_id: str, include_extra_pitch: bool = False) -> List
         res.append(Player(**d))
     return res
 
+def get_extra_pitch_players(team_id: str) -> List[Player]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM players WHERE extra_pitch_team_id = ? AND team_id != ?", (team_id, team_id))
+    rows = cursor.fetchall()
+    conn.close()
+    res = []
+    for r in rows:
+        d = dict(r)
+        d['age'] = calculate_age(d['birthdate'])
+        res.append(Player(**d))
+    return res
+
 def get_player(player_id: str) -> Optional[Player]:
     conn = get_connection()
     cursor = conn.cursor()

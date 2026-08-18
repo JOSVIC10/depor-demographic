@@ -307,7 +307,7 @@ class PPTXGenerator:
             p.font.size = Pt(box.font_size)
             p.font.color.rgb = NAVY
 
-        # Render injured players
+        # Render injured players (Left)
         injured_players = [p for p in players if getattr(p, 'is_injured', False)]
         if injured_players:
             txBox = slide.shapes.add_textbox(Inches(0.2), Inches(1.2), Inches(2.5), Inches(0.5))
@@ -329,6 +329,24 @@ class PPTXGenerator:
                     extra_parts.append(str(ip.injury_return_time).strip())
                 info_text = f" ({' | '.join(extra_parts)})" if extra_parts else ""
                 p.text = f"• {ip.name}{info_text}"
+                p.font.size = Pt(8.5)
+                p.font.color.rgb = NAVY
+
+        # Render extra/filial players (Right)
+        extra_filial_players = [p for p in players if getattr(p, 'extra_pitch_team_id', None) == team.id and p.team_id != team.id]
+        if extra_filial_players:
+            txBoxRight = slide.shapes.add_textbox(Inches(10.2), Inches(1.2), Inches(2.8), Inches(0.5))
+            tfRight = txBoxRight.text_frame
+            p = tfRight.paragraphs[0]
+            p.text = "FILIAL / INCORPORADOS"
+            p.font.bold = True
+            p.font.size = Pt(12)
+            p.font.color.rgb = NAVY
+            
+            for ep in extra_filial_players:
+                p = tfRight.add_paragraph()
+                team_label = "FABRIL" if ep.team_id == "fabril" else ("JUVENIL A" if ep.team_id == "juvenil_a" else ep.team_id.upper())
+                p.text = f"• {ep.name} [{team_label}] ({ep.detailed_position})"
                 p.font.size = Pt(8.5)
                 p.font.color.rgb = NAVY
 

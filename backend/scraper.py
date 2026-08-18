@@ -259,7 +259,7 @@ def scrape_besoccer_match(url: str):
     }
 
 def scrape_besoccer_player(url: str):
-    """Scrapes a BeSoccer player profile page to extract details, photo, birthdate, and stats."""
+    """Scrapes a BeSoccer player profile page to extract details, photo, birthdate, career stats."""
     html_content = None
     last_error = None
 
@@ -322,79 +322,171 @@ def scrape_besoccer_player(url: str):
         "seasons_data": ""
     }
 
-    # 1. Try JSON-LD script extraction
-    for script_tag in soup.select('script[type="application/ld+json"]'):
-        if script_tag and script_tag.string:
-            try:
-                js_data = json.loads(script_tag.string)
-                if isinstance(js_data, dict):
-                    if js_data.get("@type") in ["Person", "Athlete"] or "birthDate" in js_data or "name" in js_data:
-                        if "name" in js_data and not player_data["name"]:
-                            player_data["name"] = js_data["name"].strip()
-                        if "image" in js_data and not player_data["photo_src_url"]:
-                            img = js_data["image"]
-                            if isinstance(img, str):
-                                player_data["photo_src_url"] = img
-                            elif isinstance(img, dict) and "url" in img:
-                                player_data["photo_src_url"] = img["url"]
-                        if "birthDate" in js_data:
-                            bdate = js_data["birthDate"].strip()
-                            if re.match(r"^\d{4}-\d{2}-\d{2}$", bdate):
-                                player_data["birthdate"] = bdate
-                elif isinstance(js_data, list):
-                    for item in js_data:
-                        if isinstance(item, dict) and item.get("@type") in ["Person", "Athlete"]:
-                            if "name" in item and not player_data["name"]:
-                                player_data["name"] = item["name"].strip()
-                            if "image" in item and not player_data["photo_src_url"]:
-                                player_data["photo_src_url"] = item["image"] if isinstance(item["image"], str) else item["image"].get("url")
-                            if "birthDate" in item:
-                                player_data["birthdate"] = item["birthDate"].strip()
-            except Exception:
-                pass
+    # ===== 1. EXTRACT NAME =====
+    # Priority: .head-title > og:title > title tag > JSON-LD (only @type=Person with birthDate)
+    head_title = soup.select_one('.head-title')
+    if head_title:
+        player_data["name"] = head_title.get_text(strip=True)
 
-    # 2. Extract Name from HTML
     if not player_data["name"]:
-        name_node = soup.select_one('h1.name, h1.title, .player-info h1, .head-title h1, .header-player h1, .name-player')
-        if name_node:
-            player_data["name"] = name_node.get_text(strip=True)
-        else:
-            title_node = soup.select_one('title')
-            if title_node:
-                t_text = title_node.get_text()
+        og = soup.select_one('meta[property="og:title"]')
+        if og:
+            og_content = og.get('content', '')
+            m = re.match(r'Estad[ií]sticas de (.+?) hoy', og_content)
+            if m:
+                player_data["name"] = m.group(1).strip()
+            else:
+                # Try extracting before " | BeSoccer"
+                player_data["name"] = og_content.split('|')[0].replace('Estadísticas de', '').replace('Estadisticas de', '').strip().rstrip(',').strip()
+
+    if not player_data["name"]:
+        title_tag = soup.select_one('title')
+        if title_tag:
+            t_text = title_tag.get_text()
+            m = re.match(r'Estad[ií]sticas (.+?) hoy', t_text)
+            if m:
+                player_data["name"] = m.group(1).strip()
+            else:
                 player_data["name"] = t_text.split("-")[0].split("|")[0].strip()
 
-    # 3. Extract Photo
-    if not player_data["photo_src_url"]:
-        photo_node = soup.select_one('.head-player img, .avatar-box img, .player-photo img, .main-player-info img, img.player-img, img[src*="players/"]')
-        if photo_node and photo_node.get('src'):
-            src = photo_node.get('src')
-            if not src.startswith('data:'):
+    # JSON-LD fallback: only use if it has birthDate (main player entity, not squad members)
+    if not player_data["name"]:
+        for script_tag in soup.select('script[type="application/ld+json"]'):
+            if script_tag and script_tag.string:
+                try:
+                    js_data = json.loads(script_tag.string)
+                    if isinstance(js_data, dict) and js_data.get("@type") in ["Person", "Athlete"] and "birthDate" in js_data:
+                        if "name" in js_data:
+                            player_data["name"] = js_data["name"].strip()
+                            break
+                except Exception:
+                    pass
+
+    # ===== 2. EXTRACT PHOTO =====
+    # Main player photo: img with alt matching player name and size=340x (large), or first non-nofoto player img
+    player_name_lower = player_data["name"].lower() if player_data["name"] else ""
+
+    # Try finding img with alt matching the player name
+    for img in soup.select('img'):
+        alt = (img.get('alt') or '').strip().lower()
+        src = img.get('src') or img.get('data-src') or ''
+        if not src or src.startswith('data:'):
+            continue
+        if 'nofoto' in src:
+            continue
+        if alt and player_name_lower and alt == player_name_lower:
+            # Prefer the largest version (size=340x)
+            if '340x' in src or 'medium' in src:
+                player_data["photo_src_url"] = src
+                break
+            elif not player_data["photo_src_url"]:
                 player_data["photo_src_url"] = src
 
-    # 4. Extract Birthdate & Position from bio items
+    # Fallback: .head-player img, .avatar-box img
+    if not player_data["photo_src_url"]:
+        for sel in ['.head-player img', '.avatar-box img', '.player-photo img', '.main-player-info img']:
+            node = soup.select_one(sel)
+            if node:
+                src = node.get('src') or node.get('data-src') or ''
+                if src and 'nofoto' not in src and not src.startswith('data:'):
+                    player_data["photo_src_url"] = src
+                    break
+
+    # Even nofoto is acceptable as last resort if no other image found
+    if not player_data["photo_src_url"]:
+        for img in soup.select('img'):
+            alt = (img.get('alt') or '').strip().lower()
+            src = img.get('src') or ''
+            if alt and player_name_lower and alt == player_name_lower and src:
+                player_data["photo_src_url"] = src
+                break
+
+    # ===== 3. EXTRACT BIRTHDATE =====
+    # Look for "Nacido el DD MES YYYY" pattern in panel-body
     page_text = soup.get_text()
     
-    # Birthdate search (e.g. 14 May 2002 or 14/05/2002 or 2002-05-14)
-    bdate_match = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", page_text)
-    if bdate_match and player_data["birthdate"] == "2000-01-01":
-        player_data["birthdate"] = f"{bdate_match.group(1)}-{bdate_match.group(2).zfill(2)}-{bdate_match.group(3).zfill(2)}"
+    # Spanish month names
+    month_map = {
+        'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+        'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+        'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12',
+        'january': '01', 'february': '02', 'march': '03', 'april': '04',
+        'may': '05', 'june': '06', 'july': '07', 'august': '08',
+        'september': '09', 'october': '10', 'november': '11', 'december': '12',
+        'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
+        'jun': '06', 'jul': '07', 'aug': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12',
+    }
+    
+    bdate_match = re.search(r'Nacido el (\d{1,2})\s+(\w+)\.?\s+(\d{4})', page_text, re.IGNORECASE)
+    if bdate_match:
+        day = bdate_match.group(1).zfill(2)
+        month_str = bdate_match.group(2).lower().rstrip('.')
+        year = bdate_match.group(3)
+        month = month_map.get(month_str, '01')
+        player_data["birthdate"] = f"{year}-{month}-{day}"
     else:
-        bdate_match_dmy = re.search(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", page_text)
-        if bdate_match_dmy and player_data["birthdate"] == "2000-01-01":
-            player_data["birthdate"] = f"{bdate_match_dmy.group(3)}-{bdate_match_dmy.group(2).zfill(2)}-{bdate_match_dmy.group(1).zfill(2)}"
+        # Fallback: ISO date from JSON-LD
+        for script_tag in soup.select('script[type="application/ld+json"]'):
+            if script_tag and script_tag.string:
+                try:
+                    js_data = json.loads(script_tag.string)
+                    if isinstance(js_data, dict) and "birthDate" in js_data:
+                        bdate = js_data["birthDate"].strip()
+                        if re.match(r"^\d{4}-\d{2}-\d{2}$", bdate):
+                            player_data["birthdate"] = bdate
+                            break
+                except Exception:
+                    pass
 
-    # Position detection
-    pos_nodes = soup.select('.pos, .position, .role, .demarcacion, .tag-position')
-    found_pos = ""
-    for pn in pos_nodes:
-        txt = pn.get_text(strip=True)
-        if txt:
-            found_pos = txt
-            break
-            
-    if not found_pos:
-        # Search common position keywords in text
+    if player_data["birthdate"] == "2000-01-01":
+        # Fallback: YYYY-MM-DD or DD/MM/YYYY pattern
+        bdate_iso = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", page_text)
+        if bdate_iso:
+            player_data["birthdate"] = f"{bdate_iso.group(1)}-{bdate_iso.group(2).zfill(2)}-{bdate_iso.group(3).zfill(2)}"
+        else:
+            bdate_dmy = re.search(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", page_text)
+            if bdate_dmy:
+                player_data["birthdate"] = f"{bdate_dmy.group(3)}-{bdate_dmy.group(2).zfill(2)}-{bdate_dmy.group(1).zfill(2)}"
+
+    # ===== 4. EXTRACT POSITION =====
+    # BeSoccer shows position near age info like "31 años DC" or in .panel-body
+    pos_panel = soup.select_one('.panel-body')
+    if pos_panel:
+        # Look for "Posición principal" or position abbreviations
+        pos_text = pos_panel.get_text()
+        pos_match = re.search(r'Posici[oó]n principal\s*(\w[\w\s]*?)(?:\d|$)', pos_text)
+        if pos_match:
+            found_pos = pos_match.group(1).strip()
+            if found_pos:
+                player_data["detailed_position"] = found_pos
+
+    # Position from abbreviation codes in the profile header
+    pos_abbrev_map = {
+        'GK': 'Portero', 'PT': 'Portero',
+        'CB': 'Defensa central', 'DC': 'Defensa central',
+        'LB': 'Lateral izquierdo', 'RB': 'Lateral derecho',
+        'LI': 'Lateral izquierdo', 'LD': 'Lateral derecho',
+        'DM': 'Pivote', 'MC': 'Mediocentro', 'MCD': 'Pivote',
+        'MCO': 'Mediocentro ofensivo', 'CAM': 'Mediocentro ofensivo',
+        'EI': 'Extremo izquierdo', 'ED': 'Extremo derecho',
+        'LW': 'Extremo izquierdo', 'RW': 'Extremo derecho',
+        'ST': 'Delantero centro', 'CF': 'Delantero centro',
+        'SS': 'Segundo delantero', 'SD': 'Segundo delantero',
+        'CEN': 'Delantero centro',
+    }
+
+    if player_data["detailed_position"] == "Centrocampista":
+        # Try position abbreviation from profile
+        for sel in ['.pos', '.pos-text', '.position', '.demarcacion', '.tag-position']:
+            nodes = soup.select(sel)
+            for n in nodes:
+                txt = n.get_text(strip=True).upper()
+                if txt in pos_abbrev_map:
+                    player_data["detailed_position"] = pos_abbrev_map[txt]
+                    break
+
+    if player_data["detailed_position"] == "Centrocampista":
+        # Search position keywords in text
         pos_keywords = [
             ("Portero", "Portero"),
             ("Defensa central", "Defensa central"),
@@ -412,26 +504,96 @@ def scrape_besoccer_player(url: str):
         ]
         for kw, mapped in pos_keywords:
             if kw.lower() in page_text.lower():
-                found_pos = mapped
+                player_data["detailed_position"] = mapped
                 break
 
-    if found_pos:
-        player_data["detailed_position"] = found_pos
+    # Check the header area for position abbreviation like "31 años DC"
+    for ta_c in soup.select('.ta-c'):
+        txt = ta_c.get_text(strip=True)
+        m = re.match(r'\d+\s*a[ñn]os?\s*(\w{2,3})', txt)
+        if m:
+            abbrev = m.group(1).upper()
+            if abbrev in pos_abbrev_map and player_data["detailed_position"] == "Centrocampista":
+                player_data["detailed_position"] = pos_abbrev_map[abbrev]
 
-    # 5. Extract Stats (Minutes, matches, goals, cards)
-    stat_rows = soup.select('.stat-row, tr.stats, .stats-box tr, table.stats tr')
-    for sr in stat_rows:
-        txt = sr.get_text(separator=" ", strip=True).lower()
-        if "minuto" in txt or "min" in txt:
-            m = re.search(r"(\d+[\.,]?\d*)\s*(?:min|')", txt)
-            if m:
-                player_data["minutes_played"] = int(m.group(1).replace(".", "").replace(",", ""))
-        if "gol" in txt:
-            m = re.search(r"(\d+)\s*gol", txt)
-            if m:
-                player_data["goals"] = int(m.group(1))
+    # ===== 5. EXTRACT CAREER / SEASON STATS =====
+    # Parse the career table (table.table_parents)
+    # Structure: parent_row = team + season aggregates, parent_son = competition breakdown
+    # Columns: Equipos | Temp | PJ | Goals | Assists | Yellow | Red | PJ | PT | PS | MIN | Age | Pts | ELO
+    career_table = soup.select_one('table.table_parents')
+    seasons_list = []
+    total_minutes = 0
+    total_starts = 0
+    total_subs = 0
+    total_goals = 0
+    total_yellows = 0
+    total_reds = 0
+
+    if career_table:
+        for row in career_table.select('tr.parent_row'):
+            cells = row.select('td')
+            if len(cells) < 11:
+                continue
+
+            # Extract team name
+            team_link = cells[0].select_one('a span')
+            team_name = team_link.get_text(strip=True) if team_link else cells[0].get_text(strip=True)
+
+            # Extract season
+            season_cell = cells[1].get_text(strip=True)
+            season = re.search(r'(\d{4}/\d{2,4})', season_cell)
+            season_str = season.group(1) if season else season_cell.strip()
+
+            # Extract stats from cells
+            try:
+                pj = int(cells[2].get_text(strip=True) or 0)
+                goles = int(cells[3].get_text(strip=True) or 0)
+                asist = int(cells[4].get_text(strip=True) or 0)
+                amarillas = int(cells[5].get_text(strip=True) or 0)
+                rojas = int(cells[6].get_text(strip=True) or 0)
+                pj2 = int(cells[7].get_text(strip=True) or 0)
+                pt = int(cells[8].get_text(strip=True) or 0)
+                ps = int(cells[9].get_text(strip=True) or 0)
+                min_text = cells[10].get_text(strip=True).replace("'", "").replace(".", "").replace(",", "")
+                mins = int(re.search(r'\d+', min_text).group()) if re.search(r'\d+', min_text) else 0
+            except (ValueError, IndexError, AttributeError):
+                continue
+
+            seasons_list.append(f"{season_str}: {mins}' mins ({pj} partidos)")
+            total_minutes += mins
+            total_starts += pt
+            total_subs += ps
+            total_goals += goles
+            total_yellows += amarillas
+            total_reds += rojas
+
+    # Only use the last 3 seasons for the seasons_data summary
+    if seasons_list:
+        player_data["seasons_data"] = " | ".join(seasons_list[:3])
+    
+    player_data["minutes_played"] = total_minutes
+    player_data["starts"] = total_starts
+    player_data["subs_in"] = total_subs
+    player_data["goals"] = total_goals
+    player_data["yellow_cards"] = total_yellows
+    player_data["red_cards"] = total_reds
+
+    # Fallback: If no career table found, try aggregated stats from stat-row
+    if not career_table:
+        stat_rows = soup.select('.stat-row, tr.stats, .stats-box tr, table.stats tr')
+        for sr in stat_rows:
+            txt = sr.get_text(separator=" ", strip=True).lower()
+            if "minuto" in txt or "min" in txt:
+                m = re.search(r"(\d+[\.,]?\d*)\s*(?:min|')", txt)
+                if m:
+                    player_data["minutes_played"] = int(m.group(1).replace(".", "").replace(",", ""))
+            if "gol" in txt:
+                m = re.search(r"(\d+)\s*gol", txt)
+                if m:
+                    player_data["goals"] = int(m.group(1))
 
     return {
         "success": True,
         "player": player_data
     }
+
