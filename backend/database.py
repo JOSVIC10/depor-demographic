@@ -176,6 +176,29 @@ def init_db():
     cursor.execute("DELETE FROM players WHERE id LIKE 'p_auto_%'")
     conn.commit()
     conn.close()
+    sync_player_photos()
+
+def sync_player_photos():
+    """Ensures all players have their photo_url linked if a corresponding photo file exists in frontend/photos."""
+    photos_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "photos")
+    if not os.path.exists(photos_dir):
+        return
+    files = set(os.listdir(photos_dir))
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, photo_url FROM players")
+    rows = cursor.fetchall()
+    for r in rows:
+        p_id = r['id']
+        curr_photo = r['photo_url']
+        if not curr_photo:
+            for ext in ['.jpeg', '.jpg', '.png', '.webp']:
+                candidate = f"{p_id}{ext}"
+                if candidate in files:
+                    cursor.execute("UPDATE players SET photo_url = ? WHERE id = ?", (f"/static/photos/{candidate}", p_id))
+                    break
+    conn.commit()
+    conn.close()
 
 # Teams CRUD
 def create_team(name: str, season: str = "2026/27 SEASON", club_name: str = "DEPORTIVO DE A CORUÑA FC", team_id: Optional[str] = None) -> Team:
@@ -205,19 +228,30 @@ def get_team(team_id: str) -> Optional[Team]:
     return Team(**dict(row)) if row else None
 
 # Players CRUD
-def create_player(name: str, birthdate: str, detailed_position: str, team_id: str, player_id: Optional[str] = None) -> Player:
+def create_player(name: str, birthdate: str, detailed_position: str, team_id: str, player_id: Optional[str] = None, photo_url: Optional[str] = None) -> Player:
     p_id = player_id or str(uuid.uuid4())[:8]
     cat = derive_position_category(detailed_position)
+    
+    resolved_photo = photo_url
+    if not resolved_photo:
+        photos_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "photos")
+        if os.path.exists(photos_dir):
+            for ext in ['.jpeg', '.jpg', '.png', '.webp']:
+                candidate = f"{p_id}{ext}"
+                if os.path.exists(os.path.join(photos_dir, candidate)):
+                    resolved_photo = f"/static/photos/{candidate}"
+                    break
+
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-    INSERT OR REPLACE INTO players (id, name, birthdate, detailed_position, derived_category, team_id)
-    VALUES (?, ?, ?, ?, ?, ?)
-    """, (p_id, name, birthdate, detailed_position, cat, team_id))
+    INSERT OR REPLACE INTO players (id, name, birthdate, detailed_position, derived_category, team_id, photo_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (p_id, name, birthdate, detailed_position, cat, team_id, resolved_photo))
     conn.commit()
     conn.close()
     age = calculate_age(birthdate)
-    return Player(id=p_id, name=name, birthdate=birthdate, detailed_position=detailed_position, derived_category=cat, team_id=team_id, age=age)
+    return Player(id=p_id, name=name, birthdate=birthdate, detailed_position=detailed_position, derived_category=cat, team_id=team_id, age=age, photo_url=resolved_photo)
 
 def update_player(player_id: str, name: str, birthdate: str, detailed_position: str, team_id: str) -> Player:
     cat = derive_position_category(detailed_position)
