@@ -95,10 +95,15 @@ def main():
         })
     upsert("matches", matches)
 
-    # Lineup entries
+    # Lineup entries — only upload those with valid player references
+    valid_player_ids = set(p["id"] for p in all_players_raw)
     raw = [dict(r) for r in conn.execute("SELECT * FROM lineup_entries").fetchall()]
     lineups = []
+    skipped = 0
     for le in raw:
+        if le["player_id"] not in valid_player_ids:
+            skipped += 1
+            continue  # skip orphaned entries
         lineups.append({
             "id": le["id"], "match_id": le["match_id"], "player_id": le["player_id"],
             "is_starter": le.get("is_starter", 0),
@@ -112,7 +117,17 @@ def main():
             "card_minute": le.get("card_minute"), "card_type": le.get("card_type"),
             "goals": le.get("goals") or 0,
         })
-    upsert("lineup_entries", lineups)
+    if skipped:
+        print(f"  [lineup_entries] Saltando {skipped} entradas huerfanas")
+    # Push in batches of 100
+    BATCH = 100
+    ok_count = 0
+    for i in range(0, len(lineups), BATCH):
+        batch = lineups[i:i+BATCH]
+        if upsert("lineup_entries", batch):
+            ok_count += len(batch)
+    print(f"  [lineup_entries] Total subidas: {ok_count}/{len(lineups)}")
+
 
     # Substitutions
     raw = [dict(r) for r in conn.execute("SELECT * FROM substitutions").fetchall()]
