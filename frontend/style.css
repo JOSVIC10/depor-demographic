@@ -643,7 +643,7 @@ body {
   align-items: center;
   gap: 8px;
   z-index: 15;
-  max-width: 65px;
+  max-width: 78px;
   pointer-events: auto;
   overflow-y: auto;
   scrollbar-width: thin;

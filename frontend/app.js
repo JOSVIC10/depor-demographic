@@ -2306,7 +2306,7 @@ function renderMatchPreview(data, targetContainerId = "prevPitchCContainer", tar
                 ${photoContent}
                 ${badgesHtml}
               </div>
-              <div class="player-name-pill" style="font-size: 0.65rem; padding: 1px 5px; max-width: 60px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${sub.name}</div>
+              <div class="player-name-pill" style="font-size: 0.65rem; padding: 1px 5px; max-width: 65px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${sub.name}</div>
             </div>
           `;
         }).join("")}
