@@ -488,8 +488,8 @@ body {
 
 .pitch-svg-canvas {
   width: 100%;
-  max-width: 459px;
-  aspect-ratio: 459 / 487;
+  max-width: 637px;
+  aspect-ratio: 637 / 667;
   position: relative;
   background-image: url('pitch.png');
   background-size: 100% 100%;
@@ -498,8 +498,8 @@ body {
 }
 
 .pitch-svg-canvas.wide-slide-pitch {
-  max-width: 459px;
-  aspect-ratio: 459 / 487;
+  max-width: 637px;
+  aspect-ratio: 637 / 667;
 }
 
 .pitch-trapezoid {
@@ -1137,8 +1137,8 @@ body {
 
 .pitch-svg-canvas {
   width: 100%;
-  max-width: 459px;
-  aspect-ratio: 459 / 487;
+  max-width: 637px;
+  aspect-ratio: 637 / 667;
   position: relative;
   background-image: url('pitch.png');
   background-size: 100% 100%;
