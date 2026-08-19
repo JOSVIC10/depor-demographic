@@ -454,6 +454,81 @@ function closeEditPlayerModal() {
   document.getElementById("editPlayerModal").classList.remove("active");
 }
 
+async function importPlayerFromBeSoccer() {
+  const urlInput = document.getElementById("editPlayerImportUrl");
+  const btn = urlInput.nextElementSibling;
+  const url = urlInput.value.trim();
+  if (!url) {
+    alert("Introduce una URL de BeSoccer válida");
+    return;
+  }
+
+  const origText = btn.innerHTML;
+  btn.innerHTML = "⏳ Importando...";
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`${API_BASE}/scrape-player`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url })
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || "Error al importar");
+    }
+
+    const data = await res.json();
+    
+    // Fill fields
+    if (data.name) document.getElementById("editPlayerName").value = data.name;
+    if (data.birthdate) document.getElementById("editPlayerBirthdate").value = data.birthdate;
+    if (data.detailed_position) document.getElementById("editPlayerPosition").value = data.detailed_position;
+    
+    if (data.stats) {
+      document.getElementById("editPlayerMin").value = data.stats.minutes_played || 0;
+      document.getElementById("editPlayerStarts").value = data.stats.starts || 0;
+      document.getElementById("editPlayerSubs").value = data.stats.subs_in || 0;
+      document.getElementById("editPlayerYellows").value = data.stats.yellow_cards || 0;
+      document.getElementById("editPlayerReds").value = data.stats.red_cards || 0;
+      document.getElementById("editPlayerGoals").value = data.stats.goals || 0;
+    }
+    
+    if (data.seasons_data) {
+      document.getElementById("editPlayerSeasonsData").value = data.seasons_data;
+    }
+    
+    if (data.photo_url) {
+      // Fetch photo and update preview
+      const photoRes = await fetch(data.photo_url);
+      const blob = await photoRes.blob();
+      const file = new File([blob], "scraped_photo.jpg", { type: blob.type });
+      
+      // Simulate file selection
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      const fileInput = document.getElementById("editPlayerPhotoInput");
+      fileInput.files = dataTransfer.files;
+      
+      // Update preview
+      selectedPhotoFile = file;
+      const img = document.getElementById("editPlayerPhotoImg");
+      const fallback = document.getElementById("editPlayerPhotoFallback");
+      img.src = data.photo_url;
+      img.style.display = "block";
+      fallback.style.display = "none";
+    }
+
+    alert("✅ Datos importados. Revisa y pulsa 'Guardar Cambios'");
+  } catch (err) {
+    alert("❌ Error: " + err.message);
+  } finally {
+    btn.innerHTML = origText;
+    btn.disabled = false;
+  }
+}
+
 function handlePlayerPhotoSelect(event) {
   if (event.target.files && event.target.files[0]) {
     selectedPhotoFile = event.target.files[0];

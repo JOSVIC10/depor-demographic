@@ -116,6 +116,31 @@ def import_player_from_besoccer(team_id: str, payload: Dict = Body(...)):
 
     return db.get_player(p.id)
 
+class ScrapePlayerRequest(BaseModel):
+    url: str
+
+@app.post("/api/scrape-player")
+def api_scrape_player(req: ScrapePlayerRequest):
+    res = scrape_besoccer_player(req.url)
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("error", "Error scraping player"))
+    
+    player_data = res["player"]
+    return {
+        "name": player_data.get("name"),
+        "birthdate": player_data.get("birthdate"),
+        "detailed_position": player_data.get("detailed_position"),
+        "photo_url": player_data.get("photo_src_url"),
+        "seasons_data": player_data.get("seasons_data"),
+        "stats": {
+            "minutes_played": player_data.get("minutes_played"),
+            "starts": player_data.get("starts"),
+            "subs_in": player_data.get("subs_in"),
+            "yellow_cards": player_data.get("yellow_cards"),
+            "red_cards": player_data.get("red_cards"),
+            "goals": player_data.get("goals")
+        }
+    }
 @app.put("/api/players/{player_id}", response_model=Player)
 def update_player(player_id: str, player: PlayerCreate):
     return db.update_player(player_id, player.name, player.birthdate, player.detailed_position, player.team_id)

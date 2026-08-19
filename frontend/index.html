@@ -532,6 +532,14 @@
       <div style="padding: 1rem 0;">
         <input type="hidden" id="editPlayerId">
         
+        <!-- Import from BeSoccer -->
+        <div style="background-color: #f1f5f9; padding: 0.8rem; border-radius: 0.5rem; display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1.2rem; border: 1px solid #cbd5e1;">
+          <input type="text" id="editPlayerImportUrl" class="form-control" placeholder="Pega el enlace del jugador de BeSoccer..." style="flex: 1; border-color: #94a3b8; font-size: 0.82rem;">
+          <button class="btn btn-secondary" onclick="importPlayerFromBeSoccer()" style="background-color: var(--navy-primary); color: white; padding: 0.4rem 0.8rem; font-size: 0.82rem;">
+              🔄 Importar
+          </button>
+        </div>
+        
         <!-- Photo Section -->
         <div style="display: flex; gap: 1.5rem; align-items: center; background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 1.2rem; border: 1px dashed #cbd5e1;">
           <div style="width: 84px; height: 84px; border-radius: 50%; overflow: hidden; background: #002060; display: flex; align-items: center; justify-content: center; border: 3px solid #002060; box-shadow: 0 2px 6px rgba(0,0,0,0.15);" id="editPlayerPhotoPreviewContainer">
