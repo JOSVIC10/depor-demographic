@@ -8,6 +8,7 @@ import tempfile
 import requests
 import pandas as pd
 from typing import List, Dict, Optional, Tuple
+from pydantic import BaseModel
 from backend.models import Player, PlayerCreate, PlayerInjuryUpdate, Team, Match, MatchCreate, LineupEntry, SubstitutionEvent
 from backend import database as db
 from backend.layout_engine import LayoutEngine, PitchSpec
