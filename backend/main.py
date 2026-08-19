@@ -1161,6 +1161,153 @@ def export_pdf_get(team_id: Optional[str] = "depor", all_teams: bool = False):
         headers={"Content-Disposition": f'attachment; filename="{out_name}"'}
     )
 
+
+# ─── Admin: Supabase sync endpoints ──────────────────────────────────────────
+
+@app.get("/api/admin/push-all-to-supabase")
+def push_all_to_supabase():
+    """
+    Push ALL local SQLite data to Supabase in one shot.
+    Run this once after a fresh deploy to seed Supabase, or whenever
+    you want to force a full resync from the local DB to the cloud.
+    """
+    from backend.supabase_client import supabase_sync
+    if not supabase_sync.is_available():
+        return {"success": False, "error": "Supabase not available"}
+
+    results = {"teams": 0, "players": 0, "matches": 0, "lineup_entries": 0, "substitutions": 0}
+
+    # Teams
+    teams = db.get_teams()
+    if teams:
+        supabase_sync.upsert("teams", [
+            {"id": t.id, "name": t.name, "season": t.season, "club_name": t.club_name}
+            for t in teams
+        ])
+        results["teams"] = len(teams)
+
+    # Players (raw from DB to preserve all fields)
+    import sqlite3 as _sqlite3
+    from backend.database import get_connection as _get_conn, DB_PATH as _DB_PATH
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM players")
+    all_players_raw = [dict(r) for r in cur.fetchall()]
+    conn.close()
+
+    if all_players_raw:
+        sb_players = []
+        for p in all_players_raw:
+            sb_players.append({
+                "id": p["id"], "name": p["name"], "birthdate": p["birthdate"],
+                "detailed_position": p["detailed_position"], "derived_category": p["derived_category"],
+                "team_id": p["team_id"], "pitch_x": p.get("pitch_x"), "pitch_y": p.get("pitch_y"),
+                "photo_url": p.get("photo_url"), "minutes_played": p.get("minutes_played", 0),
+                "starts": p.get("starts", 0), "subs_in": p.get("subs_in", 0),
+                "yellow_cards": p.get("yellow_cards", 0), "red_cards": p.get("red_cards", 0),
+                "goals": p.get("goals", 0), "seasons_data": p.get("seasons_data"),
+                "is_injured": p.get("is_injured", 0), "injury_description": p.get("injury_description", ""),
+                "injury_return_time": p.get("injury_return_time", ""), "injury_phase": p.get("injury_phase", ""),
+                "extra_pitch_team_id": p.get("extra_pitch_team_id"),
+            })
+        supabase_sync.upsert("players", sb_players)
+        results["players"] = len(sb_players)
+
+    # Matches
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM matches")
+    all_matches_raw = [dict(r) for r in cur.fetchall()]
+    conn.close()
+
+    import json as _json
+    if all_matches_raw:
+        sb_matches = []
+        for m in all_matches_raw:
+            sub_times = m.get("substitution_times", "[]")
+            if isinstance(sub_times, str):
+                try:
+                    sub_times = _json.loads(sub_times)
+                except Exception:
+                    sub_times = []
+            sb_matches.append({
+                "id": m["id"], "team_id": m["team_id"], "opponent": m["opponent"],
+                "date": m["date"], "result_type": m["result_type"],
+                "home_goals": m["home_goals"], "away_goals": m["away_goals"],
+                "is_home": m["is_home"], "competition": m.get("competition", "LALIGA HYPERMOTION"),
+                "match_type": m.get("match_type", "LIGA"), "matchday": m.get("matchday", ""),
+                "custom_title": m.get("custom_title"),
+                "playing_time": m.get("playing_time", "90 Minutes"),
+                "substitute_cadence": m.get("substitute_cadence", ""),
+                "substitution_times": sub_times,
+            })
+        supabase_sync.upsert("matches", sb_matches)
+        results["matches"] = len(sb_matches)
+
+    # Lineup entries
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM lineup_entries")
+    all_lineups = [dict(r) for r in cur.fetchall()]
+    conn.close()
+
+    if all_lineups:
+        sb_lineups = []
+        for le in all_lineups:
+            sb_lineups.append({
+                "id": le["id"], "match_id": le["match_id"], "player_id": le["player_id"],
+                "is_starter": le.get("is_starter", 0),
+                "is_substitute": 0 if le.get("is_starter") else 1,
+                "grid_x": le.get("grid_x", 0.5), "grid_y": le.get("grid_y", 0.5),
+                "position_label": le.get("field_position", "POS"),
+                "minute_in": le.get("sub_in_minute"), "minute_out": le.get("sub_out_minute"),
+                "minutes_played": le.get("minutes_played", 0),
+                "has_yellow_card": le.get("has_yellow_card", 0),
+                "has_red_card": le.get("has_red_card", 0),
+                "card_minute": le.get("card_minute"), "card_type": le.get("card_type"),
+                "goals": le.get("goals", 0),
+            })
+        supabase_sync.upsert("lineup_entries", sb_lineups)
+        results["lineup_entries"] = len(sb_lineups)
+
+    # Substitutions
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM substitutions")
+    all_subs = [dict(r) for r in cur.fetchall()]
+    conn.close()
+
+    if all_subs:
+        sb_subs = [
+            {"id": s["id"], "match_id": s["match_id"], "player_out_id": s["player_out_id"],
+             "player_in_id": s["player_in_id"], "minute": s["minute"]}
+            for s in all_subs
+        ]
+        supabase_sync.upsert("substitutions", sb_subs)
+        results["substitutions"] = len(sb_subs)
+
+    return {"success": True, "pushed": results}
+
+
+@app.get("/api/admin/sync-from-supabase")
+def sync_from_supabase_endpoint():
+    """Pull all data from Supabase into the local SQLite DB (useful after restart)."""
+    try:
+        db.sync_from_supabase()
+        return {"success": True, "message": "Datos sincronizados desde Supabase a SQLite local."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/admin/supabase-status")
+def supabase_status():
+    """Check Supabase connectivity."""
+    from backend.supabase_client import supabase_sync
+    supabase_sync.reset_availability()
+    available = supabase_sync.is_available()
+    return {"supabase_available": available}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,11 +1,262 @@
 import sqlite3
 import os
 import uuid
+import json as _json
 import pandas as pd
 from typing import List, Optional, Dict
 from backend.models import Player, Team, Match, LineupEntry, SubstitutionEvent, derive_position_category, calculate_age
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "depor_demographic.db")
+
+# ─── Supabase helpers ────────────────────────────────────────────────────────
+def _supabase():
+    """Lazy import of supabase_sync singleton to avoid circular imports."""
+    from backend.supabase_client import supabase_sync
+    return supabase_sync
+
+
+def sync_from_supabase():
+    """
+    On startup: pull ALL data from Supabase and upsert it into the local
+    SQLite DB.  This makes Supabase the single source of truth so that
+    data survives Render restarts / ephemeral filesystem resets.
+    """
+    sb = _supabase()
+    if not sb.is_available():
+        print("[Supabase] Not available - skipping sync from cloud")
+        return
+
+    print("[Supabase] Syncing data FROM Supabase -> SQLite...")
+    conn = get_connection()
+    cur = conn.cursor()
+
+    try:
+        # ── Teams ──
+        for t in sb.fetch_all("teams"):
+            cur.execute(
+                "INSERT OR REPLACE INTO teams (id, name, season, club_name) VALUES (?,?,?,?)",
+                (t["id"], t["name"], t["season"], t["club_name"])
+            )
+
+        # ── Players ──
+        for p in sb.fetch_all("players"):
+            cur.execute("""
+                INSERT OR REPLACE INTO players
+                  (id, name, birthdate, detailed_position, derived_category,
+                   team_id, pitch_x, pitch_y, photo_url, minutes_played,
+                   starts, subs_in, yellow_cards, red_cards, goals,
+                   seasons_data, is_injured, injury_description,
+                   injury_return_time, injury_phase, extra_pitch_team_id)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                p["id"], p["name"], p["birthdate"],
+                p["detailed_position"], p["derived_category"], p["team_id"],
+                p.get("pitch_x"), p.get("pitch_y"), p.get("photo_url"),
+                p.get("minutes_played", 0), p.get("starts", 0),
+                p.get("subs_in", 0), p.get("yellow_cards", 0),
+                p.get("red_cards", 0), p.get("goals", 0),
+                p.get("seasons_data"), p.get("is_injured", 0),
+                p.get("injury_description", ""), p.get("injury_return_time", ""),
+                p.get("injury_phase", ""), p.get("extra_pitch_team_id")
+            ))
+
+        # ── Matches ──
+        for m in sb.fetch_all("matches"):
+            sub_times = m.get("substitution_times", "[]")
+            if isinstance(sub_times, list):
+                sub_times = _json.dumps(sub_times)
+            cur.execute("""
+                INSERT OR REPLACE INTO matches
+                  (id, team_id, opponent, date, result_type, home_goals,
+                   away_goals, is_home, competition, match_type, matchday,
+                   custom_title, playing_time, substitute_cadence, substitution_times)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                m["id"], m["team_id"], m["opponent"], m["date"],
+                m["result_type"], m["home_goals"], m["away_goals"],
+                m["is_home"], m["competition"],
+                m.get("match_type", "LIGA"), m.get("matchday", ""),
+                m.get("custom_title"), m.get("playing_time", "90 Minutes"),
+                m.get("substitute_cadence", ""), sub_times
+            ))
+
+        # ── Lineup entries ──
+        for le in sb.fetch_all("lineup_entries"):
+            cur.execute("""
+                INSERT OR REPLACE INTO lineup_entries
+                  (id, match_id, player_id, field_position, is_starter,
+                   grid_x, grid_y, sub_in_minute, sub_out_minute,
+                   has_yellow_card, has_red_card, card_minute, card_type, goals)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                le["id"], le["match_id"], le["player_id"],
+                le.get("position_label", le.get("field_position", "POS")),
+                le.get("is_starter", 0),
+                le.get("grid_x", 0.5), le.get("grid_y", 0.5),
+                le.get("minute_in", le.get("sub_in_minute")),
+                le.get("minute_out", le.get("sub_out_minute")),
+                le.get("has_yellow_card", 0), le.get("has_red_card", 0),
+                le.get("card_minute"), le.get("card_type"),
+                le.get("goals", 0)
+            ))
+
+        # ── Substitutions ──
+        for s in sb.fetch_all("substitutions"):
+            cur.execute("""
+                INSERT OR REPLACE INTO substitutions
+                  (id, match_id, player_out_id, player_in_id, minute)
+                VALUES (?,?,?,?,?)
+            """, (
+                s["id"], s["match_id"], s["player_out_id"],
+                s["player_in_id"], s["minute"]
+            ))
+
+        conn.commit()
+        print("[Supabase] Sync complete.")
+    except Exception as e:
+        print(f"[Supabase] Sync error: {e}")
+    finally:
+        conn.close()
+
+
+def _push_team(team_id: str, name: str, season: str, club_name: str):
+    """Push a team to Supabase."""
+    _supabase().upsert("teams", [{
+        "id": team_id, "name": name, "season": season, "club_name": club_name
+    }])
+
+
+def _push_player(player_id: str):
+    """Push a player record from SQLite to Supabase."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM players WHERE id=?", (player_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return
+    d = dict(row)
+    # Ensure derived_category is present
+    if not d.get("derived_category"):
+        d["derived_category"] = derive_position_category(d.get("detailed_position", ""))
+    _supabase().upsert("players", [{
+        "id": d["id"],
+        "name": d["name"],
+        "birthdate": d["birthdate"],
+        "detailed_position": d["detailed_position"],
+        "derived_category": d["derived_category"],
+        "team_id": d["team_id"],
+        "pitch_x": d.get("pitch_x"),
+        "pitch_y": d.get("pitch_y"),
+        "photo_url": d.get("photo_url"),
+        "minutes_played": d.get("minutes_played", 0),
+        "starts": d.get("starts", 0),
+        "subs_in": d.get("subs_in", 0),
+        "yellow_cards": d.get("yellow_cards", 0),
+        "red_cards": d.get("red_cards", 0),
+        "goals": d.get("goals", 0),
+        "seasons_data": d.get("seasons_data"),
+        "is_injured": d.get("is_injured", 0),
+        "injury_description": d.get("injury_description", ""),
+        "injury_return_time": d.get("injury_return_time", ""),
+        "injury_phase": d.get("injury_phase", ""),
+        "extra_pitch_team_id": d.get("extra_pitch_team_id"),
+    }])
+
+
+def _push_match(match_id: str):
+    """Push a match record from SQLite to Supabase (match + lineup + subs)."""
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Match row
+    cur.execute("SELECT * FROM matches WHERE id=?", (match_id,))
+    m_row = cur.fetchone()
+    if not m_row:
+        conn.close()
+        return
+    m = dict(m_row)
+    sub_times = m.get("substitution_times", "[]")
+    if isinstance(sub_times, str):
+        try:
+            sub_times = _json.loads(sub_times)
+        except Exception:
+            sub_times = []
+    _supabase().upsert("matches", [{
+        "id": m["id"],
+        "team_id": m["team_id"],
+        "opponent": m["opponent"],
+        "date": m["date"],
+        "result_type": m["result_type"],
+        "home_goals": m["home_goals"],
+        "away_goals": m["away_goals"],
+        "is_home": m["is_home"],
+        "competition": m.get("competition", "LALIGA HYPERMOTION"),
+        "match_type": m.get("match_type", "LIGA"),
+        "matchday": m.get("matchday", ""),
+        "custom_title": m.get("custom_title"),
+        "playing_time": m.get("playing_time", "90 Minutes"),
+        "substitute_cadence": m.get("substitute_cadence", ""),
+        "substitution_times": sub_times,
+    }])
+
+    # Lineup entries
+    cur.execute("SELECT * FROM lineup_entries WHERE match_id=?", (match_id,))
+    le_rows = cur.fetchall()
+    if le_rows:
+        sb_le = []
+        for le in le_rows:
+            led = dict(le)
+            sb_le.append({
+                "id": led["id"],
+                "match_id": led["match_id"],
+                "player_id": led["player_id"],
+                "is_starter": led["is_starter"],
+                "is_substitute": 0 if led["is_starter"] else 1,
+                "grid_x": led.get("grid_x", 0.5),
+                "grid_y": led.get("grid_y", 0.5),
+                "position_label": led.get("field_position", "POS"),
+                "minute_in": led.get("sub_in_minute"),
+                "minute_out": led.get("sub_out_minute"),
+                "minutes_played": led.get("minutes_played", 0),
+                "has_yellow_card": led.get("has_yellow_card", 0),
+                "has_red_card": led.get("has_red_card", 0),
+                "card_minute": led.get("card_minute"),
+                "card_type": led.get("card_type"),
+                "goals": led.get("goals", 0),
+            })
+        _supabase().upsert("lineup_entries", sb_le)
+
+    # Substitutions
+    cur.execute("SELECT * FROM substitutions WHERE match_id=?", (match_id,))
+    sub_rows = cur.fetchall()
+    if sub_rows:
+        sb_subs = []
+        for sr in sub_rows:
+            srd = dict(sr)
+            sb_subs.append({
+                "id": srd["id"],
+                "match_id": srd["match_id"],
+                "player_out_id": srd["player_out_id"],
+                "player_in_id": srd["player_in_id"],
+                "minute": srd["minute"],
+            })
+        _supabase().upsert("substitutions", sb_subs)
+
+    conn.close()
+
+
+def _delete_match_supabase(match_id: str):
+    """Delete a match (and its lineup/subs) from Supabase."""
+    sb = _supabase()
+    sb.delete("substitutions", "match_id", match_id)
+    sb.delete("lineup_entries", "match_id", match_id)
+    sb.delete("matches", "id", match_id)
+
+
+def _delete_player_supabase(player_id: str):
+    """Delete a player from Supabase."""
+    _supabase().delete("players", "id", player_id)
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH)
@@ -177,6 +428,12 @@ def init_db():
     conn.commit()
     conn.close()
     sync_player_photos()
+    # ── Pull latest data from Supabase so ephemeral SQLite is up to date ──
+    try:
+        sync_from_supabase()
+    except Exception as e:
+        print(f"[Supabase] sync_from_supabase error on init: {e}")
+
 
 def sync_player_photos():
     """Ensures all players have their photo_url linked if a corresponding photo file exists in frontend/photos."""
@@ -209,6 +466,11 @@ def create_team(name: str, season: str = "2026/27 SEASON", club_name: str = "DEP
                    (t_id, name, season, club_name))
     conn.commit()
     conn.close()
+    # Push to Supabase
+    try:
+        _push_team(t_id, name, season, club_name)
+    except Exception as e:
+        print(f"[Supabase] push team error: {e}")
     return Team(id=t_id, name=name, season=season, club_name=club_name)
 
 def get_teams() -> List[Team]:
@@ -250,6 +512,11 @@ def create_player(name: str, birthdate: str, detailed_position: str, team_id: st
     """, (p_id, name, birthdate, detailed_position, cat, team_id, resolved_photo))
     conn.commit()
     conn.close()
+    # Push to Supabase
+    try:
+        _push_player(p_id)
+    except Exception as e:
+        print(f"[Supabase] push player error: {e}")
     age = calculate_age(birthdate)
     return Player(id=p_id, name=name, birthdate=birthdate, detailed_position=detailed_position, derived_category=cat, team_id=team_id, age=age, photo_url=resolved_photo)
 
@@ -263,6 +530,11 @@ def update_player(player_id: str, name: str, birthdate: str, detailed_position: 
     """, (name, birthdate, detailed_position, cat, team_id, player_id))
     conn.commit()
     conn.close()
+    # Push to Supabase
+    try:
+        _push_player(player_id)
+    except Exception as e:
+        print(f"[Supabase] push player update error: {e}")
     age = calculate_age(birthdate)
     return Player(id=player_id, name=name, birthdate=birthdate, detailed_position=detailed_position, derived_category=cat, team_id=team_id, age=age)
 
@@ -272,6 +544,11 @@ def delete_player(player_id: str):
     cursor.execute("DELETE FROM players WHERE id = ?", (player_id,))
     conn.commit()
     conn.close()
+    # Delete from Supabase
+    try:
+        _delete_player_supabase(player_id)
+    except Exception as e:
+        print(f"[Supabase] delete player error: {e}")
 
 def update_player_pitch_position(player_id: str, pitch_x: float, pitch_y: float, extra_pitch_team_id: str = None):
     conn = get_connection()
@@ -279,6 +556,10 @@ def update_player_pitch_position(player_id: str, pitch_x: float, pitch_y: float,
     cursor.execute("UPDATE players SET pitch_x = ?, pitch_y = ?, extra_pitch_team_id = ? WHERE id = ?", (pitch_x, pitch_y, extra_pitch_team_id, player_id))
     conn.commit()
     conn.close()
+    try:
+        _push_player(player_id)
+    except Exception as e:
+        print(f"[Supabase] push pitch pos error: {e}")
 
 def toggle_injured_status(player_id: str):
     conn = get_connection()
@@ -293,6 +574,10 @@ def toggle_injured_status(player_id: str):
             cursor.execute("UPDATE players SET is_injured = 1 WHERE id = ?", (player_id,))
         conn.commit()
     conn.close()
+    try:
+        _push_player(player_id)
+    except Exception as e:
+        print(f"[Supabase] push toggle injury error: {e}")
 
 def set_player_injury(player_id: str, is_injured: bool, injury_description: str = "", injury_return_time: str = "", injury_phase: str = ""):
     conn = get_connection()
@@ -304,6 +589,10 @@ def set_player_injury(player_id: str, is_injured: bool, injury_description: str 
     """, (1 if is_injured else 0, injury_description or "", injury_return_time or "", injury_phase or "", player_id))
     conn.commit()
     conn.close()
+    try:
+        _push_player(player_id)
+    except Exception as e:
+        print(f"[Supabase] push injury error: {e}")
 
 def update_team_pitch_positions(positions: List[Dict]):
     conn = get_connection()
@@ -313,6 +602,12 @@ def update_team_pitch_positions(positions: List[Dict]):
         cursor.execute("UPDATE players SET pitch_x = ?, pitch_y = ?, extra_pitch_team_id = ? WHERE id = ?", (pos['pitch_x'], pos['pitch_y'], extra, pos['player_id']))
     conn.commit()
     conn.close()
+    # Push each updated player to Supabase
+    for pos in positions:
+        try:
+            _push_player(pos['player_id'])
+        except Exception as e:
+            print(f"[Supabase] push pitch positions error: {e}")
 
 def reset_team_pitch_positions(team_id: str):
     conn = get_connection()
@@ -454,6 +749,10 @@ def update_player_photo(player_id: str, photo_url: str):
     cursor.execute("UPDATE players SET photo_url = ? WHERE id = ?", (photo_url, player_id))
     conn.commit()
     conn.close()
+    try:
+        _push_player(player_id)
+    except Exception as e:
+        print(f"[Supabase] push photo error: {e}")
 
 def update_player_stats(player_id: str, stats: Dict):
     conn = get_connection()
@@ -480,6 +779,10 @@ def update_player_stats(player_id: str, stats: Dict):
     ))
     conn.commit()
     conn.close()
+    try:
+        _push_player(player_id)
+    except Exception as e:
+        print(f"[Supabase] push stats error: {e}")
 
 def get_all_players() -> List[Player]:
     conn = get_connection()
@@ -603,6 +906,12 @@ def create_match(team_id: str, opponent: str, date: str, result_type: str, home_
     # Auto-initialize starting 11 and substitutes for the match
     initialize_default_match_lineup(m_id, team_id)
     
+    # Push to Supabase (match + lineup)
+    try:
+        _push_match(m_id)
+    except Exception as e:
+        print(f"[Supabase] push match error: {e}")
+    
     return Match(id=m_id, team_id=team_id, opponent=opponent, date=date, result_type=result_type, home_goals=home_goals, away_goals=away_goals, is_home=is_home, competition=competition, match_type=match_type, matchday=matchday, custom_title=custom_title, playing_time=playing_time, substitute_cadence=substitute_cadence, substitution_times=substitution_times or [])
 
 def get_matches_by_team(team_id: str) -> List[Match]:
@@ -675,6 +984,11 @@ def save_lineup_and_subs(match_id: str, starters: List[Dict], substitutes: List[
         
     conn.commit()
     conn.close()
+    # Push updated lineup to Supabase
+    try:
+        _push_match(match_id)
+    except Exception as e:
+        print(f"[Supabase] push lineup error: {e}")
 
 def update_match_details(match_id: str, data: Dict) -> Optional[Match]:
     conn = get_connection()
@@ -705,6 +1019,11 @@ def update_match_details(match_id: str, data: Dict) -> Optional[Match]:
     ))
     conn.commit()
     conn.close()
+    # Push updated match to Supabase
+    try:
+        _push_match(match_id)
+    except Exception as e:
+        print(f"[Supabase] push match details error: {e}")
     
     d['is_home'] = bool(d['is_home'])
     d['substitution_times'] = json.loads(d['substitution_times']) if isinstance(d.get('substitution_times'), str) else []
@@ -774,6 +1093,9 @@ def delete_match(match_id: str):
     cursor.execute("DELETE FROM matches WHERE id = ?", (match_id,))
     conn.commit()
     conn.close()
-
-
+    # Delete from Supabase
+    try:
+        _delete_match_supabase(match_id)
+    except Exception as e:
+        print(f"[Supabase] delete match error: {e}")
 
