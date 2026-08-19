@@ -635,14 +635,15 @@ body {
 /* Sideline incoming substitutes in dark margin */
 .pitch-sideline-subs {
   position: absolute;
-  right: 8px;
+  right: 4px;
   top: 10px;
   bottom: 10px;
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
   z-index: 15;
-  max-width: 90px;
+  max-width: 85px;
   pointer-events: auto;
   overflow-y: auto;
   scrollbar-width: thin;
