@@ -482,7 +482,7 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  overflow: hidden;
+  overflow: visible;
 }
 
 
@@ -635,7 +635,7 @@ body {
 /* Sideline incoming substitutes in dark margin */
 .pitch-sideline-subs {
   position: absolute;
-  right: 4px;
+  right: -75px;
   top: 10px;
   bottom: 10px;
   display: flex;
